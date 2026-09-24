@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f0f1e" />
+  <title>حروف 🎯 — لعبة جماعية</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- شاشة التحميل -->
+  <div id="loader" class="loader active">
+    <div class="loader-emoji">🎯</div>
+    <div class="loader-text">حروف</div>
+  </div>
+
+  <!-- تطبيق اللعبة -->
+  <div id="app" class="app hidden">
+
+    <!-- ===== الشاشة الرئيسية ===== -->
+    <section id="screen-home" class="screen active">
+      <div class="home-bg">
+        <span class="floating-letter" style="--d:0s;--x:8vw;--y:18vh">أ</span>
+        <span class="floating-letter" style="--d:1.2s;--x:85vw;--y:25vh">ب</span>
+        <span class="floating-letter" style="--d:2.4s;--x:20vw;--y:80vh">ت</span>
+        <span class="floating-letter" style="--d:0.6s;--x:75vw;--y:75vh">ث</span>
+        <span class="floating-letter" style="--d:1.8s;--x:50vw;--y:45vh">ج</span>
+        <span class="floating-letter" style="--d:3s;--x:12vw;--y:50vh">ح</span>
+      </div>
+      <div class="home-content">
+        <h1 class="game-title">حروف <span class="title-emoji">🎯</span></h1>
+        <p class="game-subtitle">مين أسرع واحد هيخلص؟</p>
+
+        <div class="home-buttons">
+          <button class="btn btn-primary btn-lg" data-action="go-create">
+            <span class="btn-icon">🎮</span>
+            <span>إنشاء لعبة</span>
+          </button>
+          <button class="btn btn-secondary btn-lg" data-action="go-join">
+            <span class="btn-icon">🚪</span>
+            <span>دخول إلى لعبة</span>
+          </button>
+          <button class="btn btn-ghost btn-lg" data-action="open-howto">
+            <span class="btn-icon">📖</span>
+            <span>طريقة اللعب</span>
+          </button>
+        </div>
+
+        <div class="home-footer">
+          <button id="sound-toggle-home" class="icon-btn" title="تشغيل/كتم الصوت">
+            <span class="sound-on">🔊</span>
+            <span class="sound-off hidden">🔇</span>
+          </button>
+          <span class="version">v1.0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== شاشة إنشاء لعبة ===== -->
+    <section id="screen-create" class="screen">
+      <div class="screen-header">
+        <button class="icon-btn back-btn" data-action="back-home">←</button>
+        <h2>🎮 إنشاء لعبة جديدة</h2>
+      </div>
+
+      <div class="card">
+        <label class="field">
+          <span class="field-label">اسمك</span>
+          <input type="text" id="create-name" maxlength="20" placeholder="اكتب اسمك" />
+        </label>
+
+        <div class="field">
+          <span class="field-label">عدد الجولات</span>
+          <div class="segmented" data-name="rounds">
+            <button data-value="3">3</button>
+            <button data-value="5" class="active">5</button>
+            <button data-value="10">10</button>
+            <button data-value="0">∞ مفتوح</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">مدة الجولة</span>
+          <div class="segmented" data-name="duration">
+            <button data-value="30">30 ث</button>
+            <button data-value="60" class="active">60 ث</button>
+            <button data-value="90">90 ث</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">الخانات</span>
+          <div id="categories-selector" class="categories-grid"></div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">نظام النقاط</span>
+          <select id="scoring-mode" class="select">
+            <option value="standard" selected>قياسي (10 / 5 / 0)</option>
+            <option value="strict">صارم (15 / 0 / 0)</option>
+            <option value="lenient">متساهل (10 / 7 / 3)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary btn-block" data-action="create-room">
+          <span>إنشاء الغرفة</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== شاشة دخول إلى لعبة ===== -->
+    <section id="screen-join" class="screen">
+      <div class="screen-header">
+        <button class="icon-btn back-btn" data-action="back-home">←</button>
+        <h2>🚪 دخول إلى لعبة</h2>
+      </div>
+
+      <div class="card">
+        <label class="field">
+          <span class="field-label">اسمك</span>
+          <input type="text" id="join-name" maxlength="20" placeholder="اكتب اسمك" />
+        </label>
+
+        <label class="field">
+          <span class="field-label">كود الغرفة</span>
+          <input type="text" id="join-code" maxlength="6" placeholder="مثال: A4F2K9" class="code-input" />
+        </label>
+
+        <button class="btn btn-primary btn-block" data-action="join-room">
+          <span>دخول</span>
+        </button>
+        <p id="join-error" class="error-text hidden"></p>
+      </div>
+    </section>
+
+    <!-- ===== شاشة الغرفة ===== -->
+    <section id="screen-room" class="screen">
+      <div class="screen-header">
+        <button class="icon-btn back-btn" data-action="leave-room">←</button>
+        <h2>🛏️ غرفة الانتظار</h2>
+      </div>
+
+      <div class="card">
+        <div class="room-code-box">
+          <span class="label">كود الغرفة</span>
+          <div class="code-row">
+            <span id="room-code" class="room-code">------</span>
+            <button class="icon-btn copy-btn" data-action="copy-code" title="نسخ الكود">📋</button>
+            <button class="icon-btn share-btn" data-action="share-code" title="مشاركة">📤</button>
+          </div>
+          <span id="copy-toast" class="copy-toast">تم النسخ ✓</span>
+        </div>
+
+        <div class="room-info">
+          <div class="room-info-item">
+            <span class="num" id="room-rounds-display">5</span>
+            <span class="lbl">جولات</span>
+          </div>
+          <div class="room-info-item">
+            <span class="num" id="room-duration-display">60</span>
+            <span class="lbl">ثانية</span>
+          </div>
+          <div class="room-info-item">
+            <span class="num" id="room-players-count">0</span>
+            <span class="lbl">لاعبين</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="field-label">اللاعبون (<span id="players-list-count">0</span>)</span>
+          <ul id="players-list" class="players-list"></ul>
+        </div>
+
+        <button id="btn-start-game" class="btn btn-primary btn-block hidden">
+          <span>🎮 ابدأ اللعبة</span>
+        </button>
+        <p id="room-waiting" class="hint hidden">في انتظار اللاعبين...</p>
+      </div>
+    </section>
+
+    <!-- ===== شاشة اللعب ===== -->
+    <section id="screen-play" class="screen">
+      <div class="play-top">
+        <div class="round-info">
+          <span class="round-num">الجولة <span id="current-round">1</span> / <span id="total-rounds">5</span></span>
+        </div>
+        <div class="letter-display" id="current-letter">أ</div>
+        <div class="timer-wrap">
+          <div class="timer-circle">
+            <svg viewBox="0 0 100 100">
+              <circle class="timer-bg" cx="50" cy="50" r="45"></circle>
+              <circle class="timer-fg" id="timer-circle" cx="50" cy="50" r="45"></circle>
+            </svg>
+            <span id="timer-text" class="timer-text">60</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="hint letter-hint">اكتب إجابات تبدأ بحرف <strong id="hint-letter">أ</strong></p>
+
+      <div id="answers-grid" class="answers-grid"></div>
+
+      <button id="btn-completed" class="btn btn-success btn-block btn-completed">
+        <span class="btn-icon">✅</span>
+        <span>COMPLETED — خلصت</span>
+      </button>
+
+      <div id="completed-notice" class="completed-notice hidden">
+        <span class="fire">🔥</span>
+        <span id="completed-text">اللاعب أنهى أولًا!</span>
+      </div>
+    </section>
+
+    <!-- ===== شاشة النتائج ===== -->
+    <section id="screen-results" class="screen">
+      <div class="screen-header">
+        <h2>📊 نتائج الجولة <span id="results-round">1</span></h2>
+      </div>
+
+      <div id="round-winner-banner" class="round-winner-banner hidden">
+        <span class="crown">👑</span>
+        <span class="winner-text">بطل الجولة: <strong id="round-winner-name">—</strong></span>
+      </div>
+
+      <div class="card">
+        <div id="results-table" class="results-table"></div>
+      </div>
+
+      <div class="results-actions">
+        <button class="btn btn-primary btn-block" data-action="next-round">
+          <span>الجولة التالية ←</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== شاشة النهاية ===== -->
+    <section id="screen-final" class="screen">
+      <div class="screen-header">
+        <h2>🏆 نهاية اللعبة</h2>
+      </div>
+
+      <div id="final-podium" class="final-podium"></div>
+
+      <div class="card">
+        <h3 class="final-subtitle">الترتيب النهائي</h3>
+        <div id="final-table" class="final-table"></div>
+      </div>
+
+      <div class="results-actions">
+        <button class="btn btn-secondary btn-block" data-action="play-again">
+          <span class="btn-icon">🔁</span>
+          <span>إعادة اللعب بنفس اللاعبين</span>
+        </button>
+        <button class="btn btn-ghost btn-block" data-action="back-home-final">
+          <span>العودة للرئيسية</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== مودال طريقة اللعب ===== -->
+    <div id="modal-howto" class="modal hidden">
+      <div class="modal-backdrop" data-action="close-howto"></div>
+      <div class="modal-card">
+        <button class="modal-close icon-btn" data-action="close-howto">✕</button>
+        <h3>📖 طريقة اللعب</h3>
+        <ol class="howto-list">
+          <li>ينشئ أحد اللاعبين غرفة جديدة ويحصل على كود الغرفة.</li>
+          <li>يشارك الكود مع أصدقائه ليدخلوا بأسمائهم.</li>
+          <li>عند بدء اللعبة يظهر للجميع حرف عشوائي واحد.</li>
+          <li>يملأ كل لاعب خاناته بكلمات تبدأ بنفس الحرف.</li>
+          <li>أول لاعب يضغط <strong>COMPLETED</strong> يعطي باقي اللاعبين 10 ثوانٍ فقط.</li>
+          <li>تظهر إجابات الجميع للمقارنة، وتُحتسب النقاط تلقائيًا.</li>
+          <li>إجابة صحيحة فريدة = 10 نقاط، مكررة = 5، خاطئة = 0.</li>
+          <li>بعد كل الجولات تظهر شاشة التتويج النهائية.</li>
+        </ol>
+        <button class="btn btn-primary btn-block" data-action="close-howto">فهمت!</button>
+      </div>
+    </div>
+
+    <!-- ===== حاوية الإشعارات (Toasts) ===== -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <!-- مكتبة Supabase (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- طبقة الاتصال بـ Supabase + fallback محلي -->
+  <script src="supabase.js"></script>
+  <!-- منطق اللعبة -->
+  <script src="app.js"></script>
+</body>
+</html>
