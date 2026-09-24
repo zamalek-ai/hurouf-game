@@ -1,3346 +1,1145 @@
 /* ===========================================================
-   حروف 🎯 — طبقة المزامنة (Supabase + Local Fallback)
+   حروف 🎯 — منطق اللعبة الرئيسي (app.js)
    -----------------------------------------------------------
-   - Supabase Realtime عند توفر الإعدادات.
-   - Local BroadcastChannel كبديل للتجربة المحلية.
-   - مزامنة اللاعبين والجولات والإجابات والنتائج والنهاية.
-   - إصلاح مزامنة إجابات الجولة والنتائج.
+   - إدارة الشاشات والتنقل
+   - حالة اللاعب المحلي والغرفة
+   - منطق اللعب: إدخال الإجابات، المؤقت، COMPLETED
+   - احتساب النقاط تلقائيًا
+   - عرض النتائج والترتيب
+   - تكامل مع AudioFX و EffectsFX
+   - معالجة أخطاء شاملة
+   - منع الضغط المتكرر على الأزرار
    =========================================================== */
 
-(function (global) {
+(function () {
   'use strict';
 
   /* ===========================================================
-     الإعدادات
+     1) الإعدادات والثوابت
      =========================================================== */
 
-  const SUPABASE_URL =
-    (global.SUPABASE_CONFIG && global.SUPABASE_CONFIG.url) ||
-    localStorage.getItem('hurouf_sb_url') ||
-    '';
+  // الخانات الافتراضية (مع SVG icons بدلًا من Emojis)
+  const DEFAULT_CATEGORIES = [
+    { id: 'girl',    name: 'بنت',   icon: 'girl' },
+    { id: 'boy',     name: 'ولد',   icon: 'boy' },
+    { id: 'animal',  name: 'حيوان', icon: 'animal' },
+    { id: 'object',  name: 'جماد',  icon: 'object' },
+    { id: 'country', name: 'بلد',   icon: 'country' },
+    { id: 'food',    name: 'أكل',   icon: 'food' },
+    { id: 'plant',   name: 'نبات',  icon: 'plant' },
+    { id: 'job',     name: 'مهنة',  icon: 'job' }
+  ];
 
-  const SUPABASE_KEY =
-    (global.SUPABASE_CONFIG && global.SUPABASE_CONFIG.anonKey) ||
-    localStorage.getItem('hurouf_sb_anon_key') ||
-    '';
+  // الحروف العربية المتاحة (تجنّب الحروف النادرة جدًا)
+  const ARABIC_LETTERS = ['أ','ب','ت','ج','ح','خ','د','ر','س','ش','ص','ع','ف','ق','ك','ل','م','ن','ه','و','ي'];
 
-  const HAS_SUPABASE = !!(
-    SUPABASE_URL &&
-    SUPABASE_KEY &&
-    global.supabase &&
-    global.supabase.createClient
-  );
+  // أنظمة النقاط
+  const SCORING_MODES = {
+    standard: { unique: 10, duplicate: 5, wrong: 0 },
+    strict:   { unique: 15, duplicate: 0, wrong: 0 },
+    lenient:  { unique: 10, duplicate: 7, wrong: 3 }
+  };
+
+  // ثوانٍ إضافية بعد أول COMPLETED
+  const COUNTDOWN_AFTER_COMPLETE = 10;
+
+  // ===== SVG Icons (Inline) =====
+  const ICONS = {
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
+    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    volume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
+    mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    arrowLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+    arrowRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+    door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
+    girl: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="3"/><path d="M12 10c-3 0-6 1-6 3v4h2v6h8v-6h2v-4c0-2-3-3-6-3z"/></svg>',
+    boy: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="3"/><path d="M12 10c-3 0-6 1-6 3v4h2v6h8v-6h2v-4c0-2-3-3-6-3z"/></svg>',
+    animal: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l3 3h6l3-3 1 5-2 1v9H7v-9l-2-1z"/></svg>',
+    object: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
+    country: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+    food: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 2 6 5 6 9c0 3 2 5 4 7l-1 6h6l-1-6c2-2 4-4 4-7 0-4-2-7-6-7z"/></svg>',
+    plant: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L8 8h3v4h2V8h3z M11 12h2v10h-2z"/></svg>',
+    job: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+    crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18l-2-9-4 4-4-7-4 7-4-4z"/></svg>'
+  };
 
   /* ===========================================================
-     أدوات مساعدة
+     2) الحالة العامة
      =========================================================== */
-
-  function uid() {
-    return (
-      'p_' +
-      Date.now().toString(36) +
-      Math.random().toString(36).slice(2, 8)
-    );
-  }
-
-  function generateRoomCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-
-    for (let i = 0; i < 6; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
+  const state = {
+    playerId: null,
+    playerName: '',
+    roomCode: null,
+    isHost: false,
+    room: null,
+    players: [],
+    categories: DEFAULT_CATEGORIES.map(c => ({ ...c, enabled: true })),
+    selectedRounds: 5,        // 0 = مفتوح
+    selectedDuration: 60,
+    scoringMode: 'standard',
+    answers: {},              // { categoryId: 'value' }
+    completed: false,         // هل ضغط هذا اللاعب COMPLETED؟
+    timer: null,
+    timeLeft: 0,
+    currentRound: 0,
+    usedLetters: [],
+    // منع الضغط المتكرر
+    busy: {
+      creating: false,
+      joining: false,
+      starting: false,
+      completing: false,
+      finalizing: false,
+      nextRound: false,
+      reset: false
     }
+  };
 
-    return code;
+  /* ===========================================================
+     3) أدوات DOM مساعدة
+     =========================================================== */
+  const $  = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  function showScreen(id) {
+    $$('.screen').forEach(s => s.classList.remove('active'));
+    const target = $('#' + id);
+    if (!target) return;
+    target.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // زن详细信息 للمساعدة في تشخيص الأخطاء
+    console.info('[Screen] →', id);
   }
 
-  function emit(target, event, payload) {
-    if (!target._listeners[event]) return;
+  function toast(message, type = 'info', duration = 3000) {
+    const container = $('#toast-container');
+    if (!container) { console.warn('Toast:', message); return; }
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.textContent = message;
+    container.appendChild(t);
+    setTimeout(() => t.remove(), duration);
+  }
 
-    target._listeners[event].forEach((cb) => {
-      try {
-        cb(payload);
-      } catch (e) {
-        console.error('[HuroufSync] listener error:', e);
+  /** يعطّل زرًا مؤقتًا لمنع الضغط المتكرر */
+  function guardAction(actionName, fn) {
+    return async function (...args) {
+      if (state.busy[actionName]) {
+        console.info(`[Guard] ${actionName} busy, ignored`);
+        return;
       }
+      state.busy[actionName] = true;
+      try {
+        await fn.apply(this, args);
+      } catch (e) {
+        console.error(`[Guard] ${actionName} error:`, e);
+        toast(e.message || 'حدث خطأ غير متوقع', 'error');
+        AudioFX.play('error');
+        EffectsFX.flashError();
+      } finally {
+        state.busy[actionName] = false;
+      }
+    };
+  }
+
+  /* ===========================================================
+     4) تطبيع النصوص العربية
+     =========================================================== */
+  function normalizeArabic(text) {
+    if (!text) return '';
+    return text.toString().trim()
+      .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة التشكيل
+      .replace(/[إأآا]/g, 'ا')              // توحيد الألف
+      .replace(/ى/g, 'ي')                   // ألف مقصورة → ياء
+      .replace(/ؤ/g, 'و')
+      .replace(/ئ/g, 'ي')
+      .replace(/ة/g, 'ه')                   // تاء مربوطة → هاء
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  function isValidLetterMatch(answer, letter) {
+    const a = normalizeArabic(answer);
+    const l = normalizeArabic(letter);
+    if (!a || a.length < 2) return false;
+    if (a === l) return false;
+    return a.startsWith(l);
+  }
+
+  /* ===========================================================
+     5) توليد حرف عشوائي
+     =========================================================== */
+  function pickLetter(exclude = []) {
+    const pool = ARABIC_LETTERS.filter(l => !exclude.includes(l));
+    if (pool.length === 0) {
+      // إذا استخدمنا كل الحروف، أعد البدء
+      return ARABIC_LETTERS[Math.floor(Math.random() * ARABIC_LETTERS.length)];
+    }
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  /* ===========================================================
+     6) تهيئة شاشة الإنشاء (اختيار الخانات)
+     =========================================================== */
+  function initCategoriesSelector() {
+    const container = $('#categories-selector');
+    if (!container) return;
+    container.innerHTML = '';
+    state.categories.forEach((cat, idx) => {
+      const chip = document.createElement('button');
+      chip.className = 'cat-chip' + (cat.enabled ? ' active' : '');
+      chip.dataset.idx = idx;
+      chip.innerHTML = `
+        <span class="cat-icon-svg">${ICONS[cat.icon] || ICONS.object}</span>
+        <span class="cat-name">${cat.name}</span>
+        <span class="cat-check">${cat.enabled ? ICONS.check : ''}</span>
+      `;
+      chip.addEventListener('click', () => {
+        if (!state.isHost && state.room) return;
+        cat.enabled = !cat.enabled;
+        chip.classList.toggle('active', cat.enabled);
+        chip.querySelector('.cat-check').innerHTML = cat.enabled ? ICONS.check : '';
+        AudioFX.play('click');
+        EffectsFX.trigger('click');
+      });
+      container.appendChild(chip);
     });
   }
 
-  function makeEventEmitter() {
-    return {
-      _listeners: {},
-
-      on(event, cb) {
-        (this._listeners[event] =
-          this._listeners[event] || []).push(cb);
-
-        return () => {
-          this._listeners[event] = (
-            this._listeners[event] || []
-          ).filter((x) => x !== cb);
-        };
-      },
-
-      _emit(event, payload) {
-        emit(this, event, payload);
-      }
-    };
+  /* ===========================================================
+     7) ربط أزرار Segmented
+     =========================================================== */
+  function initSegmented() {
+    $$('.segmented').forEach(seg => {
+      const name = seg.dataset.name;
+      seg.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          seg.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const val = parseInt(btn.dataset.value, 10);
+          if (name === 'rounds') state.selectedRounds = val;
+          else if (name === 'duration') state.selectedDuration = val;
+          AudioFX.play('click');
+          EffectsFX.trigger('click');
+        });
+      });
+    });
+    const sm = $('#scoring-mode');
+    if (sm) sm.addEventListener('change', e => {
+      state.scoringMode = e.target.value;
+      AudioFX.play('click');
+    });
   }
 
   /* ===========================================================
-     توحيد شكل بيانات الإجابات
+     8) ربط أزرار الإجراءات العامة
      =========================================================== */
-
-  function normalizeAnswerRow(row) {
-    if (!row) return null;
-
-    return {
-      ...row,
-
-      playerId:
-        row.playerId ||
-        row.player_id ||
-        null,
-
-      playerName:
-        row.playerName ||
-        row.player_name ||
-        'لاعب',
-
-      answers:
-        row.answers &&
-        typeof row.answers === 'object'
-          ? row.answers
-          : {},
-
-      completedAt:
-        row.completedAt ||
-        row.completed_at ||
-        null
-    };
-  }
-
-  function normalizeAnswerList(list) {
-    if (!Array.isArray(list)) return [];
-
-    return list
-      .map(normalizeAnswerRow)
-      .filter(Boolean);
-  }
-
-  /* ===========================================================
-     الوضع المحلي
-     =========================================================== */
-
-  function createLocalSync() {
-    const sync = makeEventEmitter();
-
-    sync.mode = 'local';
-
-    let currentRoomCode = null;
-    let currentPlayerId = null;
-    let bc = null;
-    let heartbeatTimer = null;
-    let pruneTimer = null;
-
-    function roomKey() {
-      return `hurouf:room:${currentRoomCode}`;
-    }
-
-    function playersKey() {
-      return `hurouf:room:${currentRoomCode}:players`;
-    }
-
-    function answersKey(roundNumber) {
-      return `hurouf:room:${currentRoomCode}:round:${roundNumber}:answers`;
-    }
-
-    function scoresKey(roundNumber) {
-      return `hurouf:room:${currentRoomCode}:round:${roundNumber}:scores`;
-    }
-
-    function readJSON(key, fallback) {
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : fallback;
-      } catch {
-        return fallback;
+  function bindActions() {
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      if (btn.disabled) return;
+      const action = btn.dataset.action;
+      // لا تشغّل صوتًا على كل زر (بعض الأزرار لها أصواتها الخاصة)
+      AudioFX.unlock();
+      switch (action) {
+        case 'go-create':       AudioFX.play('click'); showScreen('screen-create'); break;
+        case 'go-join':         AudioFX.play('click'); showScreen('screen-join'); break;
+        case 'open-howto':      AudioFX.play('click'); $('#modal-howto').classList.remove('hidden'); break;
+        case 'close-howto':     AudioFX.play('click'); $('#modal-howto').classList.add('hidden'); break;
+        case 'back-home':       goHome(); break;
+        case 'back-home-final': resetLocalState(); showScreen('screen-home'); break;
+        case 'create-room':      handleCreateRoom(); break;
+        case 'join-room':        handleJoinRoom(); break;
+        case 'copy-code':        copyRoomCode(); break;
+        case 'share-code':       shareRoomCode(); break;
+        case 'leave-room':       handleLeaveRoom(); break;
+        case 'next-round':       handleNextRound(); break;
+        case 'play-again':       handlePlayAgain(); break;
       }
-    }
-
-    function writeJSON(key, value) {
-      try {
-        localStorage.setItem(
-          key,
-          JSON.stringify(value)
-        );
-      } catch (e) {
-        console.warn(
-          '[HuroufSync] localStorage error:',
-          e
-        );
-      }
-    }
-
-    function loadRoomState() {
-      return {
-        room: readJSON(roomKey(), null),
-        players: readJSON(playersKey(), [])
-      };
-    }
-
-    function broadcast(message) {
-      if (!bc) return;
-
-      try {
-        bc.postMessage(message);
-      } catch (e) {
-        console.warn(
-          '[HuroufSync] BroadcastChannel error:',
-          e
-        );
-      }
-    }
-
-    function handleBCMessage(ev) {
-      const msg = ev.data;
-
-      if (!msg || !msg.type) return;
-
-      switch (msg.type) {
-        case 'room-updated':
-          sync._emit(
-            'room-updated',
-            msg.room
-          );
-          break;
-
-        case 'players-updated':
-          sync._emit(
-            'players-updated',
-            msg.players || []
-          );
-          break;
-
-        case 'round-started':
-          sync._emit(
-            'round-started',
-            msg
-          );
-          break;
-
-        case 'answers-updated':
-          sync._emit(
-            'answers-updated',
-            msg
-          );
-          break;
-
-        case 'round-finalized':
-          sync._emit(
-            'round-finalized',
-            msg
-          );
-          break;
-
-        case 'game-ended':
-          sync._emit(
-            'game-ended',
-            msg
-          );
-          break;
-
-        case 'player-joined':
-          sync._emit(
-            'player-joined',
-            msg
-          );
-          break;
-
-        case 'player-left':
-          sync._emit(
-            'player-left',
-            msg
-          );
-          break;
-
-        case 'request-state': {
-          const state = loadRoomState();
-
-          broadcast({
-            type: 'state-snapshot',
-            room: state.room,
-            players: state.players,
-            to: msg.from
-          });
-
-          break;
-        }
-
-        case 'state-snapshot': {
-          if (msg.to !== currentPlayerId) return;
-
-          if (msg.room) {
-            sync._emit(
-              'room-updated',
-              msg.room
-            );
-          }
-
-          if (msg.players) {
-            sync._emit(
-              'players-updated',
-              msg.players
-            );
-          }
-
-          break;
-        }
-      }
-    }
-
-    function startHeartbeat() {
-      stopHeartbeat();
-
-      heartbeatTimer = setInterval(() => {
-        if (!currentPlayerId) return;
-
-        const players = readJSON(
-          playersKey(),
-          []
-        );
-
-        const index = players.findIndex(
-          (p) =>
-            p.id === currentPlayerId
-        );
-
-        if (index >= 0) {
-          players[index].lastSeen =
-            Date.now();
-
-          writeJSON(
-            playersKey(),
-            players
-          );
-        }
-      }, 4000);
-    }
-
-    function stopHeartbeat() {
-      if (heartbeatTimer) {
-        clearInterval(
-          heartbeatTimer
-        );
-
-        heartbeatTimer = null;
-      }
-    }
-
-    function pruneStalePlayers() {
-      const players = readJSON(
-        playersKey(),
-        []
-      );
-
-      const now = Date.now();
-
-      const fresh = players.filter(
-        (p) =>
-          !p.lastSeen ||
-          now - p.lastSeen < 15000
-      );
-
-      if (
-        fresh.length !==
-        players.length
-      ) {
-        writeJSON(
-          playersKey(),
-          fresh
-        );
-
-        broadcast({
-          type: 'players-updated',
-          players: fresh
-        });
-
-        sync._emit(
-          'players-updated',
-          fresh
-        );
-      }
-    }
-
-    /* ===========================================================
-       تهيئة
-       =========================================================== */
-
-    sync.init = async function () {
-      return Promise.resolve();
-    };
-
-    /* ===========================================================
-       إنشاء غرفة
-       =========================================================== */
-
-    sync.createRoom = async function ({
-      hostName,
-      settings
-    }) {
-      const code =
-        generateRoomCode();
-
-      const playerId = uid();
-
-      currentRoomCode = code;
-      currentPlayerId = playerId;
-
-      const now = Date.now();
-
-      const room = {
-        code,
-        status: 'lobby',
-
-        hostId: playerId,
-        hostName,
-
-        currentRound: 0,
-
-        totalRounds:
-          settings.totalRounds,
-
-        roundDuration:
-          settings.roundDuration,
-
-        categories:
-          settings.categories,
-
-        scoringMode:
-          settings.scoringMode,
-
-        currentLetter: null,
-
-        roundStartedAt: null,
-
-        completedBy: null,
-        completedAt: null,
-
-        roundFinalized: false,
-
-        createdAt: now
-      };
-
-      const players = [
-        {
-          id: playerId,
-          name: hostName,
-
-          isHost: true,
-          ready: true,
-
-          totalScore: 0,
-
-          lastSeen: now,
-          joinedAt: now
-        }
-      ];
-
-      writeJSON(
-        roomKey(),
-        room
-      );
-
-      writeJSON(
-        playersKey(),
-        players
-      );
-
-      bc =
-        new BroadcastChannel(
-          `hurouf-room-${code}`
-        );
-
-      bc.onmessage =
-        handleBCMessage;
-
-      startHeartbeat();
-
-      if (pruneTimer) {
-        clearInterval(
-          pruneTimer
-        );
-      }
-
-      pruneTimer = setInterval(
-        pruneStalePlayers,
-        5000
-      );
-
-      sync._emit(
-        'room-updated',
-        room
-      );
-
-      sync._emit(
-        'players-updated',
-        players
-      );
-
-      return {
-        roomCode: code,
-        playerId
-      };
-    };
-
-    /* ===========================================================
-       الانضمام
-       =========================================================== */
-
-    sync.joinRoom = async function ({
-      roomCode,
-      playerName
-    }) {
-      const code =
-        roomCode
-          .toUpperCase()
-          .trim();
-
-      const room = readJSON(
-        `hurouf:room:${code}`,
-        null
-      );
-
-      if (!room) {
-        throw new Error(
-          'كود الغرفة غير صحيح أو الغرفة غير موجودة'
-        );
-      }
-
-      if (room.status === 'finished') {
-        throw new Error(
-          'انتهت اللعبة بالفعل'
-        );
-      }
-
-      if (
-        room.status === 'playing' &&
-        room.currentRound > 0
-      ) {
-        throw new Error(
-          'بدأت اللعبة بالفعل، لا يمكن الدخول الآن'
-        );
-      }
-
-      const playerId = uid();
-
-      currentRoomCode = code;
-      currentPlayerId = playerId;
-
-      const now = Date.now();
-
-      const players = readJSON(
-        playersKey(),
-        []
-      );
-
-      players.push({
-        id: playerId,
-        name: playerName,
-
-        isHost: false,
-
-        ready: true,
-
-        totalScore: 0,
-
-        lastSeen: now,
-        joinedAt: now
-      });
-
-      writeJSON(
-        playersKey(),
-        players
-      );
-
-      bc =
-        new BroadcastChannel(
-          `hurouf-room-${code}`
-        );
-
-      bc.onmessage =
-        handleBCMessage;
-
-      startHeartbeat();
-
-      if (pruneTimer) {
-        clearInterval(
-          pruneTimer
-        );
-      }
-
-      pruneTimer = setInterval(
-        pruneStalePlayers,
-        5000
-      );
-
-      broadcast({
-        type: 'player-joined',
-        playerId,
-        name: playerName
-      });
-
-      broadcast({
-        type: 'players-updated',
-        players
-      });
-
-      broadcast({
-        type: 'request-state',
-        from: playerId
-      });
-
-      sync._emit(
-        'room-updated',
-        room
-      );
-
-      sync._emit(
-        'players-updated',
-        players
-      );
-
-      return {
-        room,
-        playerId
-      };
-    };
-
-    /* ===========================================================
-       مغادرة
-       =========================================================== */
-
-    sync.leaveRoom = async function () {
-      if (
-        !currentRoomCode ||
-        !currentPlayerId
-      ) {
-        return;
-      }
-
-      const players = readJSON(
-        playersKey(),
-        []
-      );
-
-      const index =
-        players.findIndex(
-          (p) =>
-            p.id ===
-            currentPlayerId
-        );
-
-      if (index >= 0) {
-        const left =
-          players[index];
-
-        players.splice(
-          index,
-          1
-        );
-
-        writeJSON(
-          playersKey(),
-          players
-        );
-
-        broadcast({
-          type: 'player-left',
-          playerId:
-            currentPlayerId,
-          name: left.name
-        });
-
-        broadcast({
-          type: 'players-updated',
-          players
-        });
-      }
-
-      stopHeartbeat();
-
-      if (pruneTimer) {
-        clearInterval(
-          pruneTimer
-        );
-
-        pruneTimer = null;
-      }
-
-      if (bc) {
-        bc.close();
-        bc = null;
-      }
-
-      currentRoomCode = null;
-      currentPlayerId = null;
-    };
-
-    /* ===========================================================
-       جاهزية اللاعب
-       =========================================================== */
-
-    sync.setPlayerReady =
-      async function (ready) {
-        if (!currentPlayerId) {
-          return;
-        }
-
-        const players = readJSON(
-          playersKey(),
-          []
-        );
-
-        const index =
-          players.findIndex(
-            (p) =>
-              p.id ===
-              currentPlayerId
-          );
-
-        if (index >= 0) {
-          players[index].ready =
-            !!ready;
-
-          players[index].lastSeen =
-            Date.now();
-
-          writeJSON(
-            playersKey(),
-            players
-          );
-
-          broadcast({
-            type: 'players-updated',
-            players
-          });
-
-          sync._emit(
-            'players-updated',
-            players
-          );
-        }
-      };
-
-    /* ===========================================================
-       تحديث الغرفة
-       =========================================================== */
-
-    sync.updateRoom =
-      async function (changes) {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        Object.assign(
-          room,
-          changes
-        );
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        broadcast({
-          type: 'room-updated',
-          room
-        });
-
-        sync._emit(
-          'room-updated',
-          room
-        );
-      };
-
-    /* ===========================================================
-       بدء الجولة
-       =========================================================== */
-
-    sync.startRound =
-      async function ({
-        letter,
-        roundNumber
-      }) {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        room.status =
-          'playing';
-
-        room.currentRound =
-          roundNumber;
-
-        room.currentLetter =
-          letter;
-
-        room.roundStartedAt =
-          Date.now();
-
-        room.completedBy = null;
-        room.completedAt = null;
-
-        room.roundFinalized =
-          false;
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        writeJSON(
-          answersKey(
-            roundNumber
-          ),
-          []
-        );
-
-        writeJSON(
-          scoresKey(
-            roundNumber
-          ),
-          []
-        );
-
-        const payload = {
-          type:
-            'round-started',
-
-          round:
-            roundNumber,
-
-          letter,
-
-          room
-        };
-
-        broadcast(payload);
-
-        sync._emit(
-          'round-started',
-          {
-            round:
-              roundNumber,
-            letter,
-            room
-          }
-        );
-      };
-
-    /* ===========================================================
-       إرسال الإجابات
-       =========================================================== */
-
-    sync.submitAnswers =
-      async function (
-        answers,
-        completed = true
-      ) {
-        if (!currentPlayerId) {
-          return;
-        }
-
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        const players =
-          readJSON(
-            playersKey(),
-            []
-          );
-
-        const me =
-          players.find(
-            (p) =>
-              p.id ===
-              currentPlayerId
-          );
-
-        const payload = {
-          playerId:
-            currentPlayerId,
-
-          playerName:
-            me
-              ? me.name
-              : 'لاعب',
-
-          answers:
-            answers || {},
-
-          completedAt:
-            completed
-              ? Date.now()
-              : null
-        };
-
-        const list =
-          normalizeAnswerList(
-            readJSON(
-              answersKey(
-                room.currentRound
-              ),
-              []
-            )
-          );
-
-        const index =
-          list.findIndex(
-            (a) =>
-              a.playerId ===
-              currentPlayerId
-          );
-
-        if (index >= 0) {
-          list[index] =
-            payload;
+    });
+
+    // زر كتم/تشغيل الصوت
+    const soundToggle = $('#sound-toggle');
+    if (soundToggle) {
+      soundToggle.addEventListener('click', () => {
+        const newVal = !AudioFX.isEnabled();
+        AudioFX.setEnabled(newVal);
+        updateSoundIcon();
+        if (newVal) {
+          AudioFX.play('click');
+          toast('تم تفعيل الصوت', 'success', 1500);
         } else {
-          list.push(payload);
+          toast('تم كتم الصوت', 'info', 1500);
         }
-
-        writeJSON(
-          answersKey(
-            room.currentRound
-          ),
-          list
-        );
-
-        const event = {
-          type:
-            'answers-updated',
-
-          round:
-            room.currentRound,
-
-          answers:
-            list,
-
-          playerId:
-            currentPlayerId,
-
-          playerName:
-            me
-              ? me.name
-              : 'لاعب'
-        };
-
-        broadcast(event);
-
-        sync._emit(
-          'answers-updated',
-          event
-        );
-      };
-
-    /* ===========================================================
-       إعلان إكمال اللاعب
-       =========================================================== */
-
-    sync.announceCompletion =
-      async function () {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        room.completedBy =
-          currentPlayerId;
-
-        room.completedAt =
-          Date.now();
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        const players =
-          readJSON(
-            playersKey(),
-            []
-          );
-
-        const me =
-          players.find(
-            (p) =>
-              p.id ===
-              currentPlayerId
-          );
-
-        const payload = {
-          type:
-            'answers-updated',
-
-          round:
-            room.currentRound,
-
-          completedBy:
-            currentPlayerId,
-
-          completedName:
-            me
-              ? me.name
-              : 'لاعب',
-
-          room
-        };
-
-        broadcast(payload);
-
-        sync._emit(
-          'answers-updated',
-          payload
-        );
-      };
-
-    /* ===========================================================
-       إنهاء الجولة
-       =========================================================== */
-
-    sync.finalizeRound =
-      async function (scores) {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        room.status =
-          'scoring';
-
-        room.roundFinalized =
-          true;
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        const normalizedScores =
-          Array.isArray(scores)
-            ? scores
-            : [];
-
-        writeJSON(
-          scoresKey(
-            room.currentRound
-          ),
-          normalizedScores
-        );
-
-        const players =
-          readJSON(
-            playersKey(),
-            []
-          );
-
-        normalizedScores.forEach(
-          (score) => {
-            const player =
-              players.find(
-                (p) =>
-                  p.id ===
-                  score.playerId
-              );
-
-            if (player) {
-              player.totalScore =
-                (player.totalScore ||
-                  0) +
-                (score.roundScore ||
-                  0);
-            }
-          }
-        );
-
-        writeJSON(
-          playersKey(),
-          players
-        );
-
-        const payload = {
-          type:
-            'round-finalized',
-
-          round:
-            room.currentRound,
-
-          scores:
-            normalizedScores,
-
-          players,
-
-          room
-        };
-
-        broadcast(payload);
-
-        broadcast({
-          type:
-            'players-updated',
-
-          players
-        });
-
-        sync._emit(
-          'round-finalized',
-          {
-            round:
-              room.currentRound,
-
-            scores:
-              normalizedScores,
-
-            players,
-
-            room
-          }
-        );
-
-        sync._emit(
-          'players-updated',
-          players
-        );
-      };
-
-    sync.nextRound =
-      async function ({
-        letter,
-        roundNumber
-      }) {
-        return sync.startRound({
-          letter,
-          roundNumber
-        });
-      };
-
-    /* ===========================================================
-       إنهاء اللعبة
-       =========================================================== */
-
-    sync.endGame =
-      async function () {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        room.status =
-          'finished';
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        const players =
-          readJSON(
-            playersKey(),
-            []
-          );
-
-        const payload = {
-          type:
-            'game-ended',
-
-          room,
-
-          players
-        };
-
-        broadcast(payload);
-
-        sync._emit(
-          'game-ended',
-          {
-            room,
-            players
-          }
-        );
-      };
-
-    /* ===========================================================
-       إعادة اللعبة
-       =========================================================== */
-
-    sync.resetGame =
-      async function () {
-        const room =
-          readJSON(
-            roomKey(),
-            null
-          );
-
-        if (!room) return;
-
-        room.status =
-          'lobby';
-
-        room.currentRound =
-          0;
-
-        room.currentLetter =
-          null;
-
-        room.completedBy =
-          null;
-
-        room.completedAt =
-          null;
-
-        room.roundFinalized =
-          false;
-
-        writeJSON(
-          roomKey(),
-          room
-        );
-
-        const players =
-          readJSON(
-            playersKey(),
-            []
-          );
-
-        players.forEach(
-          (p) => {
-            p.totalScore = 0;
-            p.ready =
-              !!p.isHost;
-          }
-        );
-
-        writeJSON(
-          playersKey(),
-          players
-        );
-
-        broadcast({
-          type:
-            'room-updated',
-
-          room
-        });
-
-        broadcast({
-          type:
-            'players-updated',
-
-          players
-        });
-
-        sync._emit(
-          'room-updated',
-          room
-        );
-
-        sync._emit(
-          'players-updated',
-          players
-        );
-      };
-
-    /* ===========================================================
-       إجابات الجولة
-       =========================================================== */
-
-    sync.getRoundAnswers =
-      async function (
-        roundNumber
-      ) {
-        return normalizeAnswerList(
-          readJSON(
-            answersKey(
-              roundNumber
-            ),
-            []
-          )
-        );
-      };
-
-    /* ===========================================================
-       حالة الغرفة
-       =========================================================== */
-
-    sync.getRoomState =
-      async function () {
-        return loadRoomState();
-      };
-
-    /* ===========================================================
-       قطع الاتصال
-       =========================================================== */
-
-    sync.disconnect =
-      function () {
-        stopHeartbeat();
-
-        if (pruneTimer) {
-          clearInterval(
-            pruneTimer
-          );
-
-          pruneTimer = null;
+      });
+    }
+
+    // زر الاهتزاز
+    const vibToggle = $('#vibration-toggle');
+    if (vibToggle) {
+      vibToggle.addEventListener('click', () => {
+        const newVal = !EffectsFX.isVibrationEnabled();
+        EffectsFX.setVibrationEnabled(newVal);
+        updateVibrationIcon();
+        if (newVal) {
+          EffectsFX.trigger('click');
+          toast('تم تفعيل الاهتزاز', 'success', 1500);
+        } else {
+          toast('تم إيقاف الاهتزاز', 'info', 1500);
         }
+      });
+    }
 
-        if (bc) {
-          bc.close();
-          bc = null;
-        }
-      };
+    // زر COMPLETED
+    const completeBtn = $('#btn-completed');
+    if (completeBtn) {
+      completeBtn.addEventListener('click', () => handleCompleted());
+    }
 
-    return sync;
+    // Enter على شاشة الدخول
+    const joinCode = $('#join-code');
+    if (joinCode) {
+      joinCode.addEventListener('input', e => {
+        e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      });
+    }
+
+    // Enter يُرسل النموذج
+    const joinName = $('#join-name');
+    if (joinName && joinCode) {
+      [joinName, joinCode].forEach(input => {
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') handleJoinRoom();
+        });
+      });
+    }
+    const createName = $('#create-name');
+    if (createName) {
+      createName.addEventListener('keydown', e => {
+        if (e.key === 'Enter') handleCreateRoom();
+      });
+    }
+  }
+
+  function updateSoundIcon() {
+    const on = $('#sound-on'); const off = $('#sound-off');
+    if (on && off) {
+      on.classList.toggle('hidden', !AudioFX.isEnabled());
+      off.classList.toggle('hidden', AudioFX.isEnabled());
+    }
+  }
+
+  function updateVibrationIcon() {
+    const on = $('#vibration-on'); const off = $('#vibration-off');
+    if (on && off) {
+      on.classList.toggle('hidden', !EffectsFX.isVibrationEnabled());
+      off.classList.toggle('hidden', EffectsFX.isVibrationEnabled());
+    }
   }
 
   /* ===========================================================
-     Supabase Realtime
+     9) إنشاء غرفة
      =========================================================== */
+  const handleCreateRoom = guardAction('creating', async function () {
+    const name = $('#create-name').value.trim();
+    if (!name) { toast('اكتب اسمك أولاً', 'error'); AudioFX.play('error'); return; }
 
-  function createSupabaseSync() {
-    const sync =
-      makeEventEmitter();
+    const enabledCats = state.categories.filter(c => c.enabled);
+    if (enabledCats.length < 3) { toast('اختر 3 خانات على الأقل', 'error'); AudioFX.play('error'); return; }
 
-    sync.mode =
-      'supabase';
+    state.playerName = name;
+    state.isHost = true;
 
-    const sb =
-      global.supabase.createClient(
-        SUPABASE_URL,
-        SUPABASE_KEY,
-        {
-          realtime: {
-            params: {
-              eventsPerSecond: 20
-            }
-          }
-        }
-      );
+    const settings = {
+      totalRounds: state.selectedRounds,
+      roundDuration: state.selectedDuration,
+      categories: enabledCats,
+      scoringMode: state.scoringMode
+    };
 
-    let currentRoomCode = null;
-    let currentPlayerId = null;
-    let currentRoomId = null;
-    let channel = null;
+    toast('جارٍ إنشاء الغرفة...', 'info', 2000);
+    const { roomCode, playerId } = await HuroufSync.createRoom({ hostName: name, settings });
+    state.roomCode = roomCode;
+    state.playerId = playerId;
+    state.categories = enabledCats;
+    enterRoomScreen();
+    toast('تم إنشاء الغرفة بنجاح!', 'success', 2000);
+  });
 
-    /*
-      كاش محلي للإجابات.
+  /* ===========================================================
+     10) الانضمام لغرفة
+     =========================================================== */
+  const handleJoinRoom = guardAction('joining', async function () {
+    const name = $('#join-name').value.trim();
+    const code = $('#join-code').value.trim().toUpperCase();
+    if (!name) { toast('اكتب اسمك', 'error'); AudioFX.play('error'); return; }
+    if (code.length < 6) { toast('كود الغرفة يجب أن يكون 6 أحرف', 'error'); AudioFX.play('error'); return; }
 
-      مهم جداً:
-      لو Supabase تأخر في القراءة أو RLS منع SELECT مؤقتاً،
-      نقدر نستخدم آخر إجابات وصلتنا عبر Realtime.
-    */
+    state.playerName = name;
+    state.isHost = false;
 
-    const answersCache = {};
+    toast('جارٍ الانضمام...', 'info', 2000);
+    const { room, playerId } = await HuroufSync.joinRoom({ roomCode: code, playerName: name });
+    state.roomCode = code;
+    state.playerId = playerId;
+    state.room = room;
+    // اقرأ الإعدادات من الغرفة (مع توحيد أسماء الحقول)
+    state.categories = room.categories || state.categories;
+    state.selectedRounds = room.total_rounds !== undefined ? room.total_rounds : (room.totalRounds || 5);
+    state.selectedDuration = room.round_duration !== undefined ? room.round_duration : (room.roundDuration || 60);
+    state.scoringMode = room.scoring_mode || room.scoringMode || 'standard';
+    enterRoomScreen();
+    toast('تم الانضمام بنجاح!', 'success', 2000);
+  });
 
-    function cacheAnswers(
-      round,
-      answers
-    ) {
-      if (
-        round === undefined ||
-        round === null
-      ) {
-        return;
-      }
+  /* ===========================================================
+     11) شاشة الغرفة
+     =========================================================== */
+  function enterRoomScreen() {
+    showScreen('screen-room');
+    $('#room-code').textContent = state.roomCode || '------';
+    $('#room-rounds-display').textContent = state.selectedRounds === 0 ? '∞' : state.selectedRounds;
+    $('#room-duration-display').textContent = state.selectedDuration;
+    renderPlayersList();
+    updateStartButton();
 
-      const normalized =
-        normalizeAnswerList(
-          answers
-        );
+    // ربط زر البدء
+    const btnStart = $('#btn-start-game');
+    if (btnStart) btnStart.onclick = handleStartGame;
+  }
 
-      answersCache[
-        String(round)
-      ] = normalized;
-
-      return normalized;
+  function renderPlayersList() {
+    const list = $('#players-list');
+    const players = state.players || [];
+    $('#players-list-count').textContent = players.length;
+    $('#room-players-count').textContent = players.length;
+    list.innerHTML = '';
+    if (!players.length) {
+      list.innerHTML = '<li class="hint">لا يوجد لاعبون بعد...</li>';
+      return;
     }
+    const colors = ['C8A45D','123C35','0B2924','E6CC91','34d399','f87171','60a5fa','f472b6'];
+    players.forEach((p, i) => {
+      const li = document.createElement('li');
+      li.className = 'player-row' + (p.isHost ? ' is-host' : '');
+      const initial = (p.name || '?').trim().charAt(0).toUpperCase();
+      const color = '#' + colors[i % colors.length];
+      const isMe = p.id === state.playerId;
+      const statusClass = p.ready ? 'ready' : '';
+      const statusText = p.ready ? 'جاهز' : 'في الانتظار';
+      const score = p.totalScore || 0;
+      li.innerHTML = `
+        <div class="player-avatar" style="background:${color}">${initial}</div>
+        <div class="player-info">
+          <div class="player-name">${escapeHtml(p.name)}${isMe ? ' <span class="me-badge">(أنت)</span>' : ''}</div>
+          <div class="player-meta">
+            ${p.isHost ? '<span class="host-badge">صاحب الغرفة</span>' : ''}
+            <span class="player-status ${statusClass}">${statusText}</span>
+          </div>
+        </div>
+        <div class="player-score-badge">${score}</div>
+      `;
+      list.appendChild(li);
+    });
+  }
 
-    function getCachedAnswers(
-      round
-    ) {
-      return (
-        answersCache[
-          String(round)
-        ] || []
-      );
+  function updateStartButton() {
+    const btn = $('#btn-start-game');
+    const waiting = $('#room-waiting');
+    if (!btn || !waiting) return;
+    if (state.isHost) {
+      btn.classList.remove('hidden');
+      waiting.classList.add('hidden');
+      // السماح باللعب حتى لو كان الـ host وحده
+      btn.disabled = false;
+      const label = btn.querySelector('.btn-label');
+      if (label) label.textContent = 'ابدأ اللعبة';
+    } else {
+      btn.classList.add('hidden');
+      waiting.classList.remove('hidden');
+      waiting.textContent = 'في انتظار أن يبدأ صاحب الغرفة اللعبة...';
     }
-
-    /* ===========================================================
-       إرسال Broadcast
-       =========================================================== */
-
-    function broadcastEvent(
-      event,
-      payload
-    ) {
-      if (!channel) return;
-
-      try {
-        channel.send({
-          type:
-            'broadcast',
-
-          event,
-
-          payload
-        });
-      } catch (e) {
-        console.warn(
-          '[Supabase Broadcast]',
-          e
-        );
-      }
-    }
-
-    /* ===========================================================
-       استقبال Broadcast
-       =========================================================== */
-
-    function handleBroadcastEvent(
-      event
-    ) {
-      return (message) => {
-        const payload =
-          message &&
-          message.payload
-            ? message.payload
-            : message;
-
-        if (!payload) return;
-
-        if (
-          event ===
-          'answers-updated'
-        ) {
-          if (
-            payload.answers &&
-            Array.isArray(
-              payload.answers
-            )
-          ) {
-            cacheAnswers(
-              payload.round,
-              payload.answers
-            );
-          }
-        }
-
-        switch (event) {
-          case 'round-started':
-            sync._emit(
-              'round-started',
-              payload
-            );
-            break;
-
-          case 'answers-updated':
-            sync._emit(
-              'answers-updated',
-              payload
-            );
-            break;
-
-          case 'round-finalized':
-            sync._emit(
-              'round-finalized',
-              payload
-            );
-            break;
-
-          case 'game-ended':
-            sync._emit(
-              'game-ended',
-              payload
-            );
-            break;
-
-          case 'player-joined':
-            sync._emit(
-              'player-joined',
-              payload
-            );
-            break;
-
-          case 'player-left':
-            sync._emit(
-              'player-left',
-              payload
-            );
-            break;
-
-          case 'players-updated':
-            sync._emit(
-              'players-updated',
-              payload.players ||
-                []
-            );
-            break;
-
-          case 'room-updated':
-            sync._emit(
-              'room-updated',
-              payload.room ||
-                payload
-            );
-            break;
-
-          case 'state-request':
-            sync._emit(
-              'state-request',
-              payload
-            );
-            break;
-        }
-      };
-    }
-
-    /* ===========================================================
-       PostgreSQL Changes
-       =========================================================== */
-
-    function handlePostgresChange(
-      payload
-    ) {
-      const {
-        table,
-        eventType,
-        new: newRow,
-        old: oldRow
-      } = payload;
-
-      const row =
-        newRow || oldRow;
-
-      if (!row) return;
-
-      const roomIdField =
-        row.room_id ||
-        row.id;
-
-      if (
-        currentRoomId &&
-        roomIdField &&
-        roomIdField !==
-          currentRoomId
-      ) {
-        return;
-      }
-
-      switch (table) {
-        case 'rooms':
-          sync._emit(
-            'room-updated',
-            newRow
-          );
-          break;
-
-        case 'players':
-          refreshPlayers();
-
-          if (
-            eventType ===
-              'INSERT' &&
-            newRow
-          ) {
-            sync._emit(
-              'player-joined',
-              {
-                playerId:
-                  newRow.id,
-
-                name:
-                  newRow.name
-              }
-            );
-          }
-
-          if (
-            eventType ===
-              'DELETE' &&
-            oldRow
-          ) {
-            sync._emit(
-              'player-left',
-              {
-                playerId:
-                  oldRow.id,
-
-                name:
-                  oldRow.name
-              }
-            );
-          }
-
-          break;
-
-        case 'round_answers':
-          refreshAnswers();
-          break;
-      }
-    }
-
-    /* ===========================================================
-       تحديث اللاعبين
-       =========================================================== */
-
-    async function refreshPlayers() {
-      if (!currentRoomId) {
-        return;
-      }
-
-      const {
-        data,
-        error
-      } = await sb
-        .from('players')
-        .select('*')
-        .eq(
-          'room_id',
-          currentRoomId
-        )
-        .order(
-          'joined_at',
-          {
-            ascending: true
-          }
-        );
-
-      if (error) {
-        console.warn(
-          '[Supabase] refreshPlayers:',
-          error.message
-        );
-
-        return;
-      }
-
-      sync._emit(
-        'players-updated',
-        data || []
-      );
-    }
-
-    /* ===========================================================
-       تحديث الإجابات
-       =========================================================== */
-
-    async function refreshAnswers() {
-      if (!currentRoomId) {
-        return;
-      }
-
-      const {
-        data: room,
-        error: roomError
-      } = await sb
-        .from('rooms')
-        .select(
-          'current_round'
-        )
-        .eq(
-          'id',
-          currentRoomId
-        )
-        .single();
-
-      if (
-        roomError ||
-        !room
-      ) {
-        console.warn(
-          '[Supabase] refreshAnswers room:',
-          roomError &&
-            roomError.message
-        );
-
-        return;
-      }
-
-      const {
-        data,
-        error
-      } = await sb
-        .from('round_answers')
-        .select('*')
-        .eq(
-          'room_id',
-          currentRoomId
-        )
-        .eq(
-          'round_number',
-          room.current_round
-        );
-
-      if (error) {
-        console.warn(
-          '[Supabase] refreshAnswers:',
-          error.message
-        );
-
-        const cached =
-          getCachedAnswers(
-            room.current_round
-          );
-
-        sync._emit(
-          'answers-updated',
-          {
-            round:
-              room.current_round,
-
-            answers:
-              cached
-          }
-        );
-
-        return;
-      }
-
-      const normalized =
-        cacheAnswers(
-          room.current_round,
-          data || []
-        );
-
-      sync._emit(
-        'answers-updated',
-        {
-          round:
-            room.current_round,
-
-          answers:
-            normalized
-        }
-      );
-    }
-
-    /* ===========================================================
-       تهيئة
-       =========================================================== */
-
-    sync.init =
-      async function () {
-        const {
-          error
-        } = await sb
-          .from('rooms')
-          .select('id')
-          .limit(1);
-
-        if (error) {
-          console.warn(
-            '[Supabase] connection test failed:',
-            error.message
-          );
-        }
-
-        return Promise.resolve();
-      };
-
-    /* ===========================================================
-       إنشاء غرفة
-       =========================================================== */
-
-    sync.createRoom =
-      async function ({
-        hostName,
-        settings
-      }) {
-        const code =
-          generateRoomCode();
-
-        const playerId =
-          uid();
-
-        const now =
-          new Date().toISOString();
-
-        const {
-          data: room,
-          error: e1
-        } = await sb
-          .from('rooms')
-          .insert({
-            code,
-
-            host_id:
-              playerId,
-
-            host_name:
-              hostName,
-
-            status:
-              'lobby',
-
-            current_round:
-              0,
-
-            total_rounds:
-              settings.totalRounds,
-
-            round_duration:
-              settings.roundDuration,
-
-            categories:
-              settings.categories,
-
-            scoring_mode:
-              settings.scoringMode,
-
-            current_letter:
-              null,
-
-            round_started_at:
-              null,
-
-            completed_by:
-              null,
-
-            completed_at:
-              null,
-
-            round_finalized:
-              false,
-
-            created_at:
-              now
-          })
-          .select()
-          .single();
-
-        if (e1) {
-          throw new Error(
-            'فشل إنشاء الغرفة: ' +
-              e1.message
-          );
-        }
-
-        const {
-          error: e2
-        } = await sb
-          .from('players')
-          .insert({
-            id:
-              playerId,
-
-            room_id:
-              room.id,
-
-            name:
-              hostName,
-
-            is_host:
-              true,
-
-            ready:
-              true,
-
-            total_score:
-              0,
-
-            joined_at:
-              now
-          });
-
-        if (e2) {
-          throw new Error(
-            'فشل إضافة اللاعب: ' +
-              e2.message
-          );
-        }
-
-        currentRoomCode =
-          code;
-
-        currentRoomId =
-          room.id;
-
-        currentPlayerId =
-          playerId;
-
-        subscribeChannel();
-
-        sync._emit(
-          'room-updated',
-          room
-        );
-
-        await refreshPlayers();
-
-        return {
-          roomCode:
-            code,
-
-          playerId
-        };
-      };
-
-    /* ===========================================================
-       الانضمام لغرفة
-       =========================================================== */
-
-    sync.joinRoom =
-      async function ({
-        roomCode,
-        playerName
-      }) {
-        const code =
-          roomCode
-            .toUpperCase()
-            .trim();
-
-        const {
-          data: room,
-          error
-        } = await sb
-          .from('rooms')
-          .select('*')
-          .eq(
-            'code',
-            code
-          )
-          .single();
-
-        if (
-          error ||
-          !room
-        ) {
-          throw new Error(
-            'كود الغرفة غير صحيح'
-          );
-        }
-
-        if (
-          room.status ===
-          'finished'
-        ) {
-          throw new Error(
-            'انتهت اللعبة بالفعل'
-          );
-        }
-
-        if (
-          room.status ===
-            'playing' &&
-          room.current_round >
-            0
-        ) {
-          throw new Error(
-            'بدأت اللعبة بالفعل، لا يمكن الدخول الآن'
-          );
-        }
-
-        const playerId =
-          uid();
-
-        const now =
-          new Date().toISOString();
-
-        const {
-          error: e2
-        } = await sb
-          .from('players')
-          .insert({
-            id:
-              playerId,
-
-            room_id:
-              room.id,
-
-            name:
-              playerName,
-
-            is_host:
-              false,
-
-            ready:
-              true,
-
-            total_score:
-              0,
-
-            joined_at:
-              now
-          });
-
-        if (e2) {
-          throw new Error(
-            'فشل الانضمام: ' +
-              e2.message
-          );
-        }
-
-        currentRoomCode =
-          code;
-
-        currentRoomId =
-          room.id;
-
-        currentPlayerId =
-          playerId;
-
-        subscribeChannel();
-
-        broadcastEvent(
-          'player-joined',
-          {
-            playerId,
-            name:
-              playerName
-          }
-        );
-
-        sync._emit(
-          'room-updated',
-          room
-        );
-
-        await refreshPlayers();
-
-        return {
-          room,
-          playerId
-        };
-      };
-
-    /* ===========================================================
-       الاشتراك في قناة الغرفة
-       =========================================================== */
-
-    function subscribeChannel() {
-      if (channel) {
-        try {
-          sb.removeChannel(
-            channel
-          );
-        } catch {}
-
-        channel = null;
-      }
-
-      channel =
-        sb.channel(
-          `room-${currentRoomId}`
-        );
-
-      /* ---- الغرف ---- */
-
-      channel.on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'rooms',
-          filter:
-            `id=eq.${currentRoomId}`
-        },
-        handlePostgresChange
-      );
-
-      /* ---- اللاعبين ---- */
-
-      channel.on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'players',
-          filter:
-            `room_id=eq.${currentRoomId}`
-        },
-        handlePostgresChange
-      );
-
-      /* ---- الإجابات ---- */
-
-      channel.on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'round_answers',
-          filter:
-            `room_id=eq.${currentRoomId}`
-        },
-        handlePostgresChange
-      );
-
-      /* ---- Broadcast ---- */
-
-      [
-        'round-started',
-        'answers-updated',
-        'round-finalized',
-        'game-ended',
-        'player-joined',
-        'player-left',
-        'players-updated',
-        'room-updated',
-        'state-request'
-      ].forEach(
-        (eventName) => {
-          channel.on(
-            'broadcast',
-            {
-              event:
-                eventName
-            },
-            handleBroadcastEvent(
-              eventName
-            )
-          );
-        }
-      );
-
-      channel.subscribe(
-        (status) => {
-          console.info(
-            '[HuroufSync] channel status:',
-            status
-          );
-        }
-      );
-    }
-
-    /* ===========================================================
-       مغادرة الغرفة
-       =========================================================== */
-
-    sync.leaveRoom =
-      async function () {
-        if (
-          !currentPlayerId ||
-          !currentRoomId
-        ) {
-          return;
-        }
-
-        try {
-          await sb
-            .from('players')
-            .delete()
-            .eq(
-              'id',
-              currentPlayerId
-            );
-
-          broadcastEvent(
-            'player-left',
-            {
-              playerId:
-                currentPlayerId
-            }
-          );
-        } catch (e) {
-          console.warn(
-            '[Supabase] leaveRoom:',
-            e
-          );
-        }
-
-        if (channel) {
-          try {
-            sb.removeChannel(
-              channel
-            );
-          } catch {}
-
-          channel = null;
-        }
-
-        currentRoomCode = null;
-        currentRoomId = null;
-        currentPlayerId = null;
-      };
-
-    /* ===========================================================
-       جاهزية اللاعب
-       =========================================================== */
-
-    sync.setPlayerReady =
-      async function (ready) {
-        if (!currentPlayerId) {
-          return;
-        }
-
-        const {
-          error
-        } = await sb
-          .from('players')
-          .update({
-            ready:
-              !!ready
-          })
-          .eq(
-            'id',
-            currentPlayerId
-          );
-
-        if (error) {
-          console.warn(
-            '[Supabase] setPlayerReady:',
-            error.message
-          );
-        }
-
-        await refreshPlayers();
-      };
-
-    /* ===========================================================
-       تحديث الغرفة
-       =========================================================== */
-
-    sync.updateRoom =
-      async function (changes) {
-        if (!currentRoomId) {
-          return;
-        }
-
-        const dbChanges =
-          {};
-
-        for (
-          const key in changes
-        ) {
-          const snake =
-            key.replace(
-              /[A-Z]/g,
-              (m) =>
-                '_' +
-                m.toLowerCase()
-            );
-
-          dbChanges[
-            snake
-          ] =
-            changes[key];
-        }
-
-        const {
-          error
-        } = await sb
-          .from('rooms')
-          .update(
-            dbChanges
-          )
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (error) {
-          console.warn(
-            '[Supabase] updateRoom:',
-            error.message
-          );
-        }
-      };
-
-    /* ===========================================================
-       بدء الجولة
-       =========================================================== */
-
-    sync.startRound =
-      async function ({
-        letter,
-        roundNumber
-      }) {
-        if (!currentRoomId) {
-          return;
-        }
-
-        const now =
-          new Date().toISOString();
-
-        /*
-          امسح كاش الجولة الجديدة قبل البدء
-        */
-
-        delete answersCache[
-          String(roundNumber)
-        ];
-
-        const {
-          error
-        } = await sb
-          .from('rooms')
-          .update({
-            status:
-              'playing',
-
-            current_round:
-              roundNumber,
-
-            current_letter:
-              letter,
-
-            round_started_at:
-              now,
-
-            completed_by:
-              null,
-
-            completed_at:
-              null,
-
-            round_finalized:
-              false
-          })
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (error) {
-          throw new Error(
-            'فشل بدء الجولة: ' +
-              error.message
-          );
-        }
-
-        const {
-          data: updatedRoom
-        } = await sb
-          .from('rooms')
-          .select('*')
-          .eq(
-            'id',
-            currentRoomId
-          )
-          .single();
-
-        const room =
-          updatedRoom || {
-            id:
-              currentRoomId,
-
-            current_round:
-              roundNumber,
-
-            current_letter:
-              letter
-          };
-
-        const payload = {
-          round:
-            roundNumber,
-
-          letter,
-
-          room
-        };
-
-        broadcastEvent(
-          'round-started',
-          payload
-        );
-
-        sync._emit(
-          'round-started',
-          payload
-        );
-      };
-
-    /* ===========================================================
-       إرسال الإجابات
-       =========================================================== */
-
-    sync.submitAnswers =
-      async function (
-        answers,
-        completed = true
-      ) {
-        if (
-          !currentPlayerId ||
-          !currentRoomId
-        ) {
-          return;
-        }
-
-        const {
-          data: room,
-          error: roomErr
-        } = await sb
-          .from('rooms')
-          .select(
-            'current_round'
-          )
-          .eq(
-            'id',
-            currentRoomId
-          )
-          .single();
-
-        if (
-          roomErr ||
-          !room
-        ) {
-          throw new Error(
-            'تعذر قراءة الجولة الحالية'
-          );
-        }
-
-        const round =
-          room.current_round;
-
-        const {
-          data: me
-        } = await sb
-          .from('players')
-          .select('name')
-          .eq(
-            'id',
-            currentPlayerId
-          )
-          .single();
-
-        const playerName =
-          (me && me.name) ||
-          'لاعب';
-
-        const normalizedAnswers =
-          answers &&
-          typeof answers ===
-            'object'
-            ? answers
-            : {};
-
-        const payload = {
-          room_id:
-            currentRoomId,
-
-          round_number:
-            round,
-
-          player_id:
-            currentPlayerId,
-
-          player_name:
-            playerName,
-
-          answers:
-            normalizedAnswers,
-
-          completed_at:
-            completed
-              ? new Date().toISOString()
-              : null
-        };
-
-        const {
-          data: existing,
-          error:
-            existingError
-        } = await sb
-          .from('round_answers')
-          .select('id')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .eq(
-            'round_number',
-            round
-          )
-          .eq(
-            'player_id',
-            currentPlayerId
-          )
-          .maybeSingle();
-
-        if (existingError) {
-          console.warn(
-            '[Supabase] existing answer lookup:',
-            existingError.message
-          );
-        }
-
-        if (existing) {
-          const {
-            error
-          } = await sb
-            .from('round_answers')
-            .update(
-              payload
-            )
-            .eq(
-              'id',
-              existing.id
-            );
-
-          if (error) {
-            throw new Error(
-              'فشل تحديث الإجابات: ' +
-                error.message
-            );
-          }
-        } else {
-          const {
-            error
-          } = await sb
-            .from('round_answers')
-            .insert(
-              payload
-            );
-
-          if (error) {
-            throw new Error(
-              'فشل إرسال الإجابات: ' +
-                error.message
-            );
-          }
-        }
-
-        /*
-          خزّن إجابة اللاعب محلياً فوراً
-          قبل إرسالها للآخرين.
-        */
-
-        const cached =
-          getCachedAnswers(
-            round
-          );
-
-        const normalizedRow =
-          normalizeAnswerRow({
-            player_id:
-              currentPlayerId,
-
-            player_name:
-              playerName,
-
-            answers:
-              normalizedAnswers,
-
-            completed_at:
-              payload.completed_at
-          });
-
-        const index =
-          cached.findIndex(
-            (a) =>
-              a.playerId ===
-              currentPlayerId
-          );
-
-        if (index >= 0) {
-          cached[index] =
-            normalizedRow;
-        } else {
-          cached.push(
-            normalizedRow
-          );
-        }
-
-        cacheAnswers(
-          round,
-          cached
-        );
-
-        /*
-          أهم إصلاح:
-          نرسل الإجابات نفسها في الـ Broadcast
-          وليس الـ ID والاسم فقط.
-        */
-
-        broadcastEvent(
-          'answers-updated',
-          {
-            round,
-
-            playerId:
-              currentPlayerId,
-
-            playerName,
-
-            answers:
-              normalizedAnswers,
-
-            completed
-          }
-        );
-
-        sync._emit(
-          'answers-updated',
-          {
-            round,
-
-            playerId:
-              currentPlayerId,
-
-            playerName,
-
-            answers:
-              normalizedAnswers,
-
-            completed
-          }
-        );
-      };
-
-    /* ===========================================================
-       إعلان الإكمال
-       =========================================================== */
-
-    sync.announceCompletion =
-      async function () {
-        if (!currentRoomId) {
-          return;
-        }
-
-        const now =
-          new Date().toISOString();
-
-        const {
-          error
-        } = await sb
-          .from('rooms')
-          .update({
-            completed_by:
-              currentPlayerId,
-
-            completed_at:
-              now
-          })
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (error) {
-          throw new Error(
-            'فشل إعلان الإكمال: ' +
-              error.message
-          );
-        }
-
-        const {
-          data: me
-        } = await sb
-          .from('players')
-          .select('name')
-          .eq(
-            'id',
-            currentPlayerId
-          )
-          .single();
-
-        const completedName =
-          (me && me.name) ||
-          'لاعب';
-
-        const round =
-          await getCurrentRound();
-
-        const payload = {
-          round,
-
-          completedBy:
-            currentPlayerId,
-
-          completedName
-        };
-
-        broadcastEvent(
-          'answers-updated',
-          payload
-        );
-
-        sync._emit(
-          'answers-updated',
-          payload
-        );
-      };
-
-    /* ===========================================================
-       الجولة الحالية
-       =========================================================== */
-
-    async function getCurrentRound() {
-      const {
-        data: room
-      } = await sb
-        .from('rooms')
-        .select(
-          'current_round'
-        )
-        .eq(
-          'id',
-          currentRoomId
-        )
-        .single();
-
-      return room
-        ? room.current_round
-        : 0;
-    }
-
-    /* ===========================================================
-       إنهاء الجولة
-       =========================================================== */
-
-    sync.finalizeRound =
-      async function (scores) {
-        if (!currentRoomId) {
-          return;
-        }
-
-        const round =
-          await getCurrentRound();
-
-        /*
-          تأكد أن scores دائماً Array
-        */
-
-        const safeScores =
-          Array.isArray(scores)
-            ? scores
-            : [];
-
-        /*
-          لو scores فاضية، حاول بناء نتيجة
-          بسيطة من الإجابات الموجودة في الكاش.
-          هذا يمنع إرسال نتيجة فارغة.
-        */
-
-        if (
-          safeScores.length === 0
-        ) {
-          console.warn(
-            '[HuroufSync] finalizeRound received empty scores',
-            {
-              round,
-              cached:
-                getCachedAnswers(
-                  round
-                )
-            }
-          );
-        }
-
-        for (
-          const score of safeScores
-        ) {
-          const playerId =
-            score.playerId ||
-            score.player_id;
-
-          if (!playerId) {
-            continue;
-          }
-
-          const {
-            error: e1
-          } = await sb
-            .from('round_answers')
-            .update({
-              round_score:
-                score.roundScore ||
-                0,
-
-              scores:
-                score.scores ||
-                {},
-
-              player_name:
-                score.playerName ||
-                score.player_name ||
-                'لاعب'
-            })
-            .eq(
-              'room_id',
-              currentRoomId
-            )
-            .eq(
-              'round_number',
-              round
-            )
-            .eq(
-              'player_id',
-              playerId
-            );
-
-          if (e1) {
-            console.warn(
-              '[finalizeRound] answers update failed:',
-              e1.message
-            );
-          }
-
-          const {
-            data: player
-          } = await sb
-            .from('players')
-            .select(
-              'total_score'
-            )
-            .eq(
-              'id',
-              playerId
-            )
-            .single();
-
-          if (player) {
-            const {
-              error: e3
-            } = await sb
-              .from('players')
-              .update({
-                total_score:
-                  (player.total_score ||
-                    0) +
-                  (score.roundScore ||
-                    0)
-              })
-              .eq(
-                'id',
-                playerId
-              );
-
-            if (e3) {
-              console.warn(
-                '[finalizeRound] player update failed:',
-                e3.message
-              );
-            }
-          }
-        }
-
-        const {
-          error: e4
-        } = await sb
-          .from('rooms')
-          .update({
-            status:
-              'scoring',
-
-            round_finalized:
-              true
-          })
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (e4) {
-          console.warn(
-            '[finalizeRound] room update failed:',
-            e4.message
-          );
-        }
-
-        const {
-          data: updatedPlayers
-        } = await sb
-          .from('players')
-          .select('*')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .order(
-            'joined_at',
-            {
-              ascending:
-                true
-            }
-          );
-
-        /*
-          النتيجة التي سترسل لكل الأجهزة
-        */
-
-        const payload = {
-          round,
-
-          scores:
-            safeScores,
-
-          players:
-            updatedPlayers || []
-        };
-
-        broadcastEvent(
-          'round-finalized',
-          payload
-        );
-
-        sync._emit(
-          'round-finalized',
-          payload
-        );
-
-        sync._emit(
-          'players-updated',
-          updatedPlayers || []
-        );
-      };
-
-    /* ===========================================================
-       الجولة التالية
-       =========================================================== */
-
-    sync.nextRound =
-      async function ({
-        letter,
-        roundNumber
-      }) {
-        return sync.startRound({
-          letter,
-          roundNumber
-        });
-      };
-
-    /* ===========================================================
-       إنهاء اللعبة
-       =========================================================== */
-
-    sync.endGame =
-      async function () {
-        if (!currentRoomId) {
-          return;
-        }
-
-        const {
-          error
-        } = await sb
-          .from('rooms')
-          .update({
-            status:
-              'finished'
-          })
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (error) {
-          throw new Error(
-            'فشل إنهاء اللعبة: ' +
-              error.message
-          );
-        }
-
-        const {
-          data: players
-        } = await sb
-          .from('players')
-          .select('*')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .order(
-            'total_score',
-            {
-              ascending:
-                false
-            }
-          );
-
-        const payload = {
-          players:
-            players || []
-        };
-
-        broadcastEvent(
-          'game-ended',
-          payload
-        );
-
-        sync._emit(
-          'game-ended',
-          payload
-        );
-
-        sync._emit(
-          'players-updated',
-          players || []
-        );
-      };
-
-    /* ===========================================================
-       إعادة اللعبة
-       =========================================================== */
-
-    sync.resetGame =
-      async function () {
-        if (!currentRoomId) {
-          return;
-        }
-
-        /*
-          امسح كاش الإجابات
-        */
-
-        Object.keys(
-          answersCache
-        ).forEach(
-          (key) => {
-            delete answersCache[
-              key
-            ];
-          }
-        );
-
-        const {
-          error: e1
-        } = await sb
-          .from('rooms')
-          .update({
-            status:
-              'lobby',
-
-            current_round:
-              0,
-
-            current_letter:
-              null,
-
-            completed_by:
-              null,
-
-            completed_at:
-              null,
-
-            round_finalized:
-              false
-          })
-          .eq(
-            'id',
-            currentRoomId
-          );
-
-        if (e1) {
-          throw new Error(
-            'فشل إعادة الضبط: ' +
-              e1.message
-          );
-        }
-
-        const {
-          data: players
-        } = await sb
-          .from('players')
-          .select(
-            'id, is_host'
-          )
-          .eq(
-            'room_id',
-            currentRoomId
-          );
-
-        for (
-          const player of
-          players || []
-        ) {
-          await sb
-            .from('players')
-            .update({
-              total_score:
-                0,
-
-              ready:
-                !!player.is_host
-            })
-            .eq(
-              'id',
-              player.id
-            );
-        }
-
-        const {
-          data: room
-        } = await sb
-          .from('rooms')
-          .select('*')
-          .eq(
-            'id',
-            currentRoomId
-          )
-          .single();
-
-        const {
-          data:
-            updatedPlayers
-        } = await sb
-          .from('players')
-          .select('*')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .order(
-            'joined_at',
-            {
-              ascending:
-                true
-            }
-          );
-
-        broadcastEvent(
-          'room-updated',
-          room
-        );
-
-        broadcastEvent(
-          'players-updated',
-          {
-            players:
-              updatedPlayers ||
-              []
-          }
-        );
-
-        sync._emit(
-          'room-updated',
-          room
-        );
-
-        sync._emit(
-          'players-updated',
-          updatedPlayers ||
-            []
-        );
-      };
-
-    /* ===========================================================
-       إجابات الجولة
-       =========================================================== */
-
-    sync.getRoundAnswers =
-      async function (
-        roundNumber
-      ) {
-        /*
-          حاول القراءة من Supabase
-        */
-
-        const {
-          data,
-          error
-        } = await sb
-          .from('round_answers')
-          .select('*')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .eq(
-            'round_number',
-            roundNumber
-          );
-
-        /*
-          في حالة وجود بيانات صحيحة:
-          خزّنها واستخدمها.
-        */
-
-        if (
-          !error &&
-          Array.isArray(data) &&
-          data.length > 0
-        ) {
-          return cacheAnswers(
-            roundNumber,
-            data
-          );
-        }
-
-        /*
-          لو Supabase رجع فاضي أو حدث خطأ،
-          استخدم الكاش.
-        */
-
-        if (error) {
-          console.warn(
-            '[Supabase] getRoundAnswers:',
-            error.message
-          );
-        }
-
-        const cached =
-          getCachedAnswers(
-            roundNumber
-          );
-
-        if (
-          Array.isArray(cached) &&
-          cached.length > 0
-        ) {
-          return cached;
-        }
-
-        /*
-          محاولة أخيرة مباشرة
-        */
-
-        try {
-          const {
-            data: retryData
-          } = await sb
-            .from('round_answers')
-            .select('*')
-            .eq(
-              'room_id',
-              currentRoomId
-            )
-            .eq(
-              'round_number',
-              roundNumber
-            );
-
-          if (
-            Array.isArray(
-              retryData
-            ) &&
-            retryData.length > 0
-          ) {
-            return cacheAnswers(
-              roundNumber,
-              retryData
-            );
-          }
-        } catch (e) {
-          console.warn(
-            '[Supabase] retry getRoundAnswers:',
-            e
-          );
-        }
-
-        return [];
-      };
-
-    /* ===========================================================
-       حالة الغرفة
-       =========================================================== */
-
-    sync.getRoomState =
-      async function () {
-        const {
-          data: room
-        } = await sb
-          .from('rooms')
-          .select('*')
-          .eq(
-            'id',
-            currentRoomId
-          )
-          .single();
-
-        const {
-          data: players
-        } = await sb
-          .from('players')
-          .select('*')
-          .eq(
-            'room_id',
-            currentRoomId
-          )
-          .order(
-            'joined_at',
-            {
-              ascending:
-                true
-            }
-          );
-
-        return {
-          room,
-
-          players:
-            players || []
-        };
-      };
-
-    /* ===========================================================
-       قطع الاتصال
-       =========================================================== */
-
-    sync.disconnect =
-      function () {
-        if (channel) {
-          try {
-            sb.removeChannel(
-              channel
-            );
-          } catch {}
-
-          channel = null;
-        }
-      };
-
-    return sync;
   }
 
   /* ===========================================================
-     اختيار وضع التشغيل
+     12) بدء اللعبة
      =========================================================== */
+  const handleStartGame = guardAction('starting', async function () {
+    if (!state.isHost) return;
+    const enabledCats = state.categories.filter(c => c.enabled);
+    if (enabledCats.length < 3) {
+      toast('اختر 3 خانات على الأقل', 'error');
+      AudioFX.play('error');
+      return;
+    }
+    state.categories = enabledCats;
+    await startNewRound(1);
+  });
 
-  const HuroufSync =
-    HAS_SUPABASE
-      ? createSupabaseSync()
-      : createLocalSync();
+  async function startNewRound(roundNumber) {
+    const usedLetters = state.usedLetters || [];
+    const letter = pickLetter(usedLetters);
+    state.usedLetters = [...usedLetters, letter];
+    state.currentRound = roundNumber;
+    state.answers = {};
+    state.completed = false;
 
-  HuroufSync.HAS_SUPABASE =
-    HAS_SUPABASE;
-
-  HuroufSync.SUPABASE_URL =
-    SUPABASE_URL;
-
-  global.HuroufSync =
-    HuroufSync;
+    await HuroufSync.startRound({ letter, roundNumber });
+    // الحدث 'round-started' يُطلق محليًا داخل sync.startRound
+    // (في الوضع المحلي والـ Supabase معًا)
+    // فيضمن انتقال الواجهة فورًا.
+  }
 
   /* ===========================================================
-     إغلاق الصفحة
+     13) شاشة اللعب
      =========================================================== */
+  function enterPlayScreen(roundNumber, letter, room) {
+    if (room) state.room = room;
+    const elRound = $('#current-round');
+    const elTotal = $('#total-rounds');
+    const elLetter = $('#current-letter');
+    const elHint = $('#hint-letter');
+    const elTimer = $('#timer-text');
+    if (elRound) elRound.textContent = roundNumber;
+    if (elTotal) elTotal.textContent = (state.selectedRounds === 0 ? '∞' : state.selectedRounds);
+    if (elLetter) elLetter.textContent = letter;
+    if (elHint) elHint.textContent = letter;
+    if (elTimer) elTimer.textContent = state.selectedDuration;
 
-  global.addEventListener(
-    'beforeunload',
-    () => {
+    // أعد بناء حقول الإجابات
+    const grid = $('#answers-grid');
+    grid.innerHTML = '';
+    state.categories.forEach(cat => {
+      const cell = document.createElement('div');
+      cell.className = 'answer-cell';
+      cell.dataset.cat = cat.id;
+      cell.innerHTML = `
+        <div class="cat-icon-svg">${ICONS[cat.icon] || ICONS.object}</div>
+        <div class="answer-field">
+          <label class="answer-label">${cat.name}</label>
+          <input type="text"
+                 data-cat="${cat.id}"
+                 placeholder="..."
+                 autocomplete="off"
+                 ${state.completed ? 'disabled' : ''} />
+        </div>
+      `;
+      const input = cell.querySelector('input');
+      input.value = state.answers[cat.id] || '';
+      input.addEventListener('input', e => {
+        state.answers[cat.id] = e.target.value;
+      });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const inputs = $$('#answers-grid input');
+          const idx = inputs.indexOf(input);
+          if (idx >= 0 && idx + 1 < inputs.length) inputs[idx + 1].focus();
+        }
+      });
+      grid.appendChild(cell);
+    });
+
+    // زر COMPLETED
+    const btnDone = $('#btn-completed');
+    btnDone.disabled = false;
+    btnDone.classList.remove('hidden');
+    const notice = $('#completed-notice');
+    notice.classList.remove('show');
+    notice.classList.add('hidden');
+
+    showScreen('screen-play');
+
+    // أعد تشغيل حركة ظهور الحرف
+    const letterEl = $('#current-letter');
+    letterEl.classList.remove('show');
+    void letterEl.offsetWidth; // إعادة التدفق
+    letterEl.classList.add('show');
+
+    AudioFX.play('letter');
+    EffectsFX.trigger('letter');
+
+    // ابدأ المؤقت
+    startTimer(state.selectedDuration);
+  }
+
+  /* ===========================================================
+     14) المؤقت
+     =========================================================== */
+  function startTimer(duration) {
+    stopTimer();
+    state.timeLeft = duration;
+    updateTimerUI();
+    state.timer = setInterval(() => {
+      state.timeLeft--;
+      updateTimerUI();
+      // تشغيل أصوات العد التنازلي
+      if (state.timeLeft === 3) { AudioFX.play('countdown', 3); EffectsFX.trigger('countdown'); }
+      else if (state.timeLeft === 2) { AudioFX.play('countdown', 2); EffectsFX.trigger('countdown'); }
+      else if (state.timeLeft === 1) { AudioFX.play('countdown', 1); EffectsFX.trigger('countdown'); }
+      if (state.timeLeft <= 0) {
+        stopTimer();
+        onTimeUp();
+      }
+    }, 1000);
+  }
+
+  function startCountdown(seconds) {
+    // عداد تنازلي بعد أول COMPLETED
+    stopTimer();
+    state.timeLeft = seconds;
+    updateTimerUI();
+    state.timer = setInterval(() => {
+      state.timeLeft--;
+      updateTimerUI();
+      if (state.timeLeft === 3) { AudioFX.play('countdown', 3); EffectsFX.trigger('countdown'); }
+      else if (state.timeLeft === 2) { AudioFX.play('countdown', 2); EffectsFX.trigger('countdown'); }
+      else if (state.timeLeft === 1) { AudioFX.play('countdown', 1); EffectsFX.trigger('countdown'); }
+      if (state.timeLeft <= 0) {
+        stopTimer();
+        onTimeUp();
+      }
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+  }
+
+  function updateTimerUI() {
+    const txt = $('#timer-text');
+    const circle = $('#timer-circle');
+    if (!txt || !circle) return;
+    const wrap = circle.closest('.timer-circle');
+    txt.textContent = state.timeLeft;
+    const ratio = state.timeLeft / state.selectedDuration;
+    const circumference = 283; // 2π × 45
+    circle.style.strokeDashoffset = circumference * (1 - Math.max(0, ratio));
+    wrap.classList.remove('warning', 'danger');
+    if (state.timeLeft <= 5) wrap.classList.add('danger');
+    else if (state.timeLeft <= 15) wrap.classList.add('warning');
+  }
+
+  /* ===========================================================
+     15) ضغط COMPLETED
+     =========================================================== */
+  const handleCompleted = guardAction('completing', async function () {
+    if (state.completed) return;
+    state.completed = true;
+
+    // عطّل حقول الإدخال
+    $$('#answers-grid input').forEach(i => i.disabled = true);
+    $('#btn-completed').disabled = true;
+
+    AudioFX.play('completed');
+    EffectsFX.trigger('completed');
+
+    // أرسل الإجابات وأعلن الانتهاء
+    await HuroufSync.submitAnswers(state.answers, true);
+    await HuroufSync.announceCompletion();
+
+    // ابدأ عدًا تنازليًا قصيرًا (10 ثوانٍ) ثم أنهِ الجولة تلقائيًا
+    // هذا يضمن أن الجولة تنتهي حتى لو كان هذا هو اللاعب الوحيد
+    startCountdown(COUNTDOWN_AFTER_COMPLETE);
+  });
+
+  function onTimeUp() {
+    // انتهى الوقت — أرسل ما لدينا وأغلق الجولة
+    if (!state.completed) {
+      state.completed = true;
+      $$('#answers-grid input').forEach(i => i.disabled = true);
+      const btn = $('#btn-completed');
+      if (btn) btn.disabled = true;
+      AudioFX.play('timeout');
+      EffectsFX.trigger('timeout');
+      HuroufSync.submitAnswers(state.answers, false).catch(e => {
+        console.warn('submitAnswers onTimeUp failed:', e);
+      });
+    }
+    // الـ host سيلخص النتائج
+    maybeFinalizeRound();
+  }
+
+  /* ===========================================================
+     16) إنهاء الجولة واحتساب النقاط (يديره الـ host)
+     =========================================================== */
+  const maybeFinalizeRound = guardAction('finalizing', async function () {
+    if (!state.isHost) return;
+    if (state.room && state.room.roundFinalized) return;
+    if (state.room && state.room.round_finalized) return; // snake_case
+
+    // انتظر قليلًا للتأكد من استلام كل الإجابات
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    const answers = await HuroufSync.getRoundAnswers(state.currentRound);
+    const scores = computeScores(answers);
+    await HuroufSync.finalizeRound(scores);
+  });
+
+  function computeScores(answersList) {
+    const mode = SCORING_MODES[state.scoringMode] || SCORING_MODES.standard;
+    const letter = (state.room && (state.room.currentLetter || state.room.current_letter)) || '';
+    const enabledCats = state.categories.map(c => c.id);
+
+    // اجمع كل القيم لكل خانة لاكتشاف التكرار
+    const valuesByCat = {};
+    enabledCats.forEach(cat => valuesByCat[cat] = []);
+    answersList.forEach(a => {
+      enabledCats.forEach(cat => {
+        const v = a.answers && (a.answers[cat] !== undefined ? a.answers[cat] : (a.answers && a.answers[cat]));
+        if (v) valuesByCat[cat].push({ playerId: a.playerId, playerName: a.player_name || a.playerName, value: v });
+      });
+    });
+
+    return answersList.map(ans => {
+      const perCat = {};
+      let roundScore = 0;
+      enabledCats.forEach(cat => {
+        const v = (ans.answers && ans.answers[cat]) || '';
+        const norm = normalizeArabic(v);
+        let points = 0;
+        if (!norm) {
+          points = 0;
+        } else if (!isValidLetterMatch(v, letter)) {
+          points = mode.wrong;
+        } else {
+          const allVals = valuesByCat[cat].map(x => normalizeArabic(x.value));
+          const isDup = allVals.filter(x => x === norm).length > 1;
+          points = isDup ? mode.duplicate : mode.unique;
+        }
+        perCat[cat] = points;
+        roundScore += points;
+      });
+      return {
+        playerId: ans.playerId,
+        playerName: ans.player_name || ans.playerName || 'لاعب',
+        scores: perCat,
+        roundScore
+      };
+    });
+  }
+
+  /* ===========================================================
+     17) شاشة النتائج
+     =========================================================== */
+  async function enterResultsScreen(round, scores, players) {
+    $('#results-round').textContent = round;
+
+    const sorted = [...scores].sort((a, b) => b.roundScore - a.roundScore);
+    const winner = sorted[0];
+
+    const banner = $('#round-winner-banner');
+    if (winner && winner.roundScore > 0) {
+      banner.classList.remove('hidden');
+      $('#round-winner-name').textContent = winner.playerName;
+      AudioFX.play('win');
+      EffectsFX.trigger('win');
+      EffectsFX.confetti({ count: 30 });
+    } else {
+      banner.classList.add('hidden');
+    }
+
+    // الجدول
+    const table = $('#results-table');
+    table.innerHTML = '';
+    sorted.forEach((s, idx) => {
+      const card = document.createElement('div');
+      card.className = 'result-card' + (idx === 0 && s.roundScore > 0 ? ' winner' : '');
+      const player = (players || state.players).find(p => p.id === s.playerId);
+      const totalScore = player ? (player.totalScore || player.total_score || 0) : 0;
+
+      let rowsHTML = '';
+      state.categories.forEach(cat => {
+        // ابحث عن إجابة اللاعب في scores
+        const playerScore = scores.find(x => x.playerId === s.playerId);
+        const ans = playerScore && playerScore.answers ? playerScore.answers[cat.id] : '';
+        const pts = s.scores && s.scores[cat.id] !== undefined ? s.scores[cat.id] : 0;
+        const uniquePoints = (SCORING_MODES[state.scoringMode] || SCORING_MODES.standard).unique;
+        const ptsClass = pts >= uniquePoints ? 'unique' :
+                         pts > 0 ? 'dup' : 'zero';
+        rowsHTML += `
+          <div class="result-answer-row">
+            <span class="ans-cat-icon">${ICONS[cat.icon] || ICONS.object}</span>
+            <span class="ans-text ${ans ? '' : 'empty'}">${ans ? escapeHtml(ans) : '—'}</span>
+            <span class="ans-points ${ptsClass}">${pts}</span>
+          </div>
+        `;
+      });
+
+      const rankEmoji = ['1st','2nd','3rd'][idx] || (idx + 1);
+      card.innerHTML = `
+        <div class="result-card-header">
+          <div class="rank">${rankEmoji}</div>
+          <div class="result-player-name">${escapeHtml(s.playerName)}${s.playerId === state.playerId ? ' <span class="me-badge">(أنت)</span>' : ''}</div>
+          <div class="result-player-score">
+            +${s.roundScore}
+            <div class="small">المجموع ${totalScore}</div>
+          </div>
+        </div>
+        <div class="result-answers">${rowsHTML}</div>
+      `;
+      table.appendChild(card);
+    });
+
+    // زر الجولة التالية
+    const nextBtn = $$('[data-action="next-round"]')[0];
+    if (state.isHost) {
+      nextBtn.disabled = false;
+      nextBtn.classList.remove('hidden');
+      const isLastRound = state.selectedRounds !== 0 && state.currentRound >= state.selectedRounds;
+      const label = nextBtn.querySelector('.btn-label');
+      if (label) label.textContent = isLastRound ? 'إنهاء اللعبة' : 'الجولة التالية';
+    } else {
+      nextBtn.disabled = true;
+      const label = nextBtn.querySelector('.btn-label');
+      if (label) label.textContent = 'في انتظار الـ host...';
+    }
+
+    AudioFX.play('results');
+    showScreen('screen-results');
+  }
+
+  const handleNextRound = guardAction('nextRound', async function () {
+    if (!state.isHost) return;
+    const isLastRound = state.selectedRounds !== 0 && state.currentRound >= state.selectedRounds;
+    if (isLastRound) {
+      await HuroufSync.endGame();
+    } else {
+      AudioFX.play('round');
+      await startNewRound(state.currentRound + 1);
+    }
+  });
+
+  /* ===========================================================
+     18) شاشة النهاية
+     =========================================================== */
+  function enterFinalScreen(players) {
+    const sorted = [...(players || state.players)].sort((a, b) => {
+      const aScore = a.totalScore || a.total_score || 0;
+      const bScore = b.totalScore || b.total_score || 0;
+      return bScore - aScore;
+    });
+
+    // منصة التتويج (أعلى 3)
+    const podium = $('#final-podium');
+    podium.innerHTML = '';
+    const top3 = sorted.slice(0, 3);
+    const podiumClasses = ['gold', 'silver', 'bronze'];
+    // ترتيب العرض: silver | gold | bronze
+    const order = [1, 0, 2].filter(i => top3[i]);
+    order.forEach(i => {
+      const p = top3[i];
+      const spot = document.createElement('div');
+      spot.className = 'podium-spot ' + podiumClasses[i];
+      const initial = (p.name || '?').charAt(0).toUpperCase();
+      const score = p.totalScore || p.total_score || 0;
+      spot.innerHTML = `
+        <div class="podium-rank">${i === 0 ? ICONS.crown : (i + 1)}</div>
+        <div class="player-avatar gold-avatar">${initial}</div>
+        <div class="podium-name">${escapeHtml(p.name)}</div>
+        <div class="podium-score">${score}</div>
+      `;
+      podium.appendChild(spot);
+    });
+
+    // الجدول الكامل
+    const table = $('#final-table');
+    table.innerHTML = '';
+    sorted.forEach((p, idx) => {
+      const card = document.createElement('div');
+      card.className = 'result-card' + (idx === 0 ? ' winner' : '');
+      const rankLabel = idx + 1;
+      const score = p.totalScore || p.total_score || 0;
+      card.innerHTML = `
+        <div class="result-card-header">
+          <div class="rank">${rankLabel}</div>
+          <div class="result-player-name">${escapeHtml(p.name)}${p.id === state.playerId ? ' <span class="me-badge">(أنت)</span>' : ''}</div>
+          <div class="result-player-score">${score}</div>
+        </div>
+      `;
+      table.appendChild(card);
+    });
+
+    showScreen('screen-final');
+
+    // confetti + صوت
+    EffectsFX.confetti({ count: 120, duration: 5500 });
+    EffectsFX.flashGold();
+    const winner = sorted[0];
+    if (winner && winner.id === state.playerId) {
+      AudioFX.play('finalWin');
+      EffectsFX.trigger('finalWin');
+    } else {
+      AudioFX.play('win');
+      EffectsFX.trigger('win');
+    }
+  }
+
+  /* ===========================================================
+     19) إعادة اللعب
+     =========================================================== */
+  const handlePlayAgain = guardAction('reset', async function () {
+    if (!state.isHost) {
+      toast('في انتظار الـ host لإعادة اللعب...', 'info');
+      return;
+    }
+    state.usedLetters = [];
+    state.currentRound = 0;
+    state.answers = {};
+    state.completed = false;
+    await HuroufSync.resetGame();
+    // سيتم الانتقال للغرفة تلقائيًا عبر حدث room-updated
+  });
+
+  /* ===========================================================
+     20) مغادرة الغرفة والعودة للرئيسية
+     =========================================================== */
+  async function handleLeaveRoom() {
+    try { await HuroufSync.leaveRoom(); } catch {}
+    resetLocalState();
+    showScreen('screen-home');
+    toast('غادرت الغرفة', 'info', 1500);
+  }
+
+  function goHome() {
+    AudioFX.play('click');
+    showScreen('screen-home');
+  }
+
+  function resetLocalState() {
+    state.playerId = null;
+    state.roomCode = null;
+    state.isHost = false;
+    state.room = null;
+    state.players = [];
+    state.answers = {};
+    state.completed = false;
+    state.currentRound = 0;
+    state.usedLetters = [];
+    stopTimer();
+  }
+
+  /* ===========================================================
+     21) نسخ ومشاركة كود الغرفة
+     =========================================================== */
+  async function copyRoomCode() {
+    if (!state.roomCode) return;
+    try {
+      await navigator.clipboard.writeText(state.roomCode);
+      const toastEl = $('#copy-toast');
+      if (toastEl) {
+        toastEl.classList.add('show');
+        setTimeout(() => toastEl.classList.remove('show'), 1500);
+      }
+      AudioFX.play('click');
+    } catch {
+      toast('تعذر النسخ', 'error');
+      AudioFX.play('error');
+    }
+  }
+
+  async function shareRoomCode() {
+    if (!state.roomCode) return;
+    const url = location.origin + location.pathname + '?room=' + state.roomCode;
+    if (navigator.share) {
       try {
-        HuroufSync.disconnect();
+        await navigator.share({ title: 'حروف 🎯', text: 'انضم إلى غرفتي في حروف!', url });
       } catch {}
+    } else {
+      try {
+        await navigator.clipboard.writeText(url);
+        toast('تم نسخ رابط الدعوة', 'success');
+      } catch {
+        toast('الكود: ' + state.roomCode, 'info');
+      }
     }
-  );
+    AudioFX.play('click');
+  }
 
-  console.info(
-    '[HuroufSync] mode:',
-    HuroufSync.mode,
-    HAS_SUPABASE
-      ? '(Supabase Realtime)'
-      : '(Local BroadcastChannel)'
-  );
+  /* ===========================================================
+     22) ربط أحداث المزامنة القادمة من HuroufSync
+     =========================================================== */
+  function bindSyncEvents() {
+    HuroufSync.on('room-updated', (room) => {
+      state.room = room;
+      // تحديث الإعدادات من بيانات الغرفة (توحيد camelCase و snake_case)
+      if (room.categories) state.categories = room.categories;
+      if (room.total_rounds !== undefined) state.selectedRounds = room.total_rounds;
+      else if (room.totalRounds !== undefined) state.selectedRounds = room.totalRounds;
+      if (room.round_duration !== undefined) state.selectedDuration = room.round_duration;
+      else if (room.roundDuration !== undefined) state.selectedDuration = room.roundDuration;
+      if (room.scoring_mode) state.scoringMode = room.scoring_mode;
+      else if (room.scoringMode) state.scoringMode = room.scoringMode;
 
-})(window);
+      // تحديث شاشة الغرفة
+      if (room.status === 'lobby') {
+        const rDisplay = $('#room-rounds-display');
+        const dDisplay = $('#room-duration-display');
+        if (rDisplay) rDisplay.textContent = (room.total_rounds === 0 ? '∞' : room.total_rounds);
+        if (dDisplay) dDisplay.textContent = room.round_duration;
+        renderPlayersList();
+        updateStartButton();
+
+        // إذا كنا في شاشة النهاية أو النتائج، أعدنا اللعب → انتقل لشاشة الغرفة
+        const currentScreen = document.querySelector('section.screen.active')?.id;
+        if (currentScreen === 'screen-final' || currentScreen === 'screen-results') {
+          state.completed = false;
+          state.answers = {};
+          state.currentRound = 0;
+          stopTimer();
+          enterRoomScreen();
+        }
+      }
+    });
+
+    HuroufSync.on('players-updated', (players) => {
+      // توحيد أسماء الحقول
+      state.players = (players || []).map(p => ({
+        ...p,
+        totalScore: p.totalScore !== undefined ? p.totalScore : (p.total_score || 0),
+        isHost: p.isHost !== undefined ? p.isHost : p.is_host
+      }));
+      renderPlayersList();
+      updateStartButton();
+    });
+
+    HuroufSync.on('round-started', ({ round, letter, room }) => {
+      if (room) state.room = room;
+      state.currentRound = round;
+      state.completed = false;
+      state.answers = {};
+      enterPlayScreen(round, letter, room);
+      // الصوت يُشغّل داخل enterPlayScreen لتجنب التكرار
+    });
+
+    HuroufSync.on('answers-updated', ({ completedBy, completedName, playerId }) => {
+      // completedBy: لاعب آخر أنهى — اعرض الإشعار وابدأ العد التنازلي
+      if (completedBy && completedBy !== state.playerId && !state.completed) {
+        const notice = $('#completed-notice');
+        if (notice) {
+          notice.classList.remove('hidden');
+          $('#completed-text').textContent = `${completedName || 'لاعب'} أنهى أولًا!`;
+          setTimeout(() => notice.classList.add('show'), 10);
+        }
+        AudioFX.play('completed');
+        startCountdown(COUNTDOWN_AFTER_COMPLETE);
+      }
+    });
+
+    HuroufSync.on('round-finalized', ({ scores, players }) => {
+      stopTimer();
+      if (scores && scores.length) {
+        enterResultsScreen(state.currentRound, scores, players || state.players);
+      } else {
+        toast('تعذر عرض النتائج', 'error');
+      }
+    });
+
+    HuroufSync.on('game-ended', ({ players }) => {
+      // اعرض الشاشة النهائية
+      if (players && players.length) {
+        enterFinalScreen(players);
+      } else {
+        HuroufSync.getRoomState().then(({ players }) => {
+          enterFinalScreen(players);
+        }).catch(e => {
+          console.error('getRoomState error:', e);
+          enterFinalScreen(state.players);
+        });
+      }
+    });
+
+    HuroufSync.on('player-joined', ({ name }) => {
+      if (name) toast(`${name} انضم للغرفة`, 'success', 2000);
+    });
+
+    HuroufSync.on('player-left', ({ name }) => {
+      if (name) toast(`${name} غادر الغرفة`, 'info', 2000);
+    });
+  }
+
+  /* ===========================================================
+     23) فحص ?room=CODE في الرابط للدخول المباشر
+     =========================================================== */
+  function checkRoomInURL() {
+    const params = new URLSearchParams(location.search);
+    const code = params.get('room');
+    if (code) {
+      showScreen('screen-join');
+      $('#join-code').value = code.toUpperCase();
+      setTimeout(() => $('#join-name').focus(), 300);
+      history.replaceState({}, '', location.pathname);
+    }
+  }
+
+  /* ===========================================================
+     24) أدوات HTML escape
+     =========================================================== */
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /* ===========================================================
+     25) الإقلاع
+     =========================================================== */
+  async function boot() {
+    console.info('[Boot] حروف 🎯 starting...');
+
+    initCategoriesSelector();
+    initSegmented();
+    bindActions();
+    bindSyncEvents();
+
+    // اعرض حالة الأيقونات الأولية
+    updateSoundIcon();
+    updateVibrationIcon();
+
+    try {
+      await HuroufSync.init();
+    } catch (e) {
+      console.warn('[Boot] Sync init error:', e);
+      toast('تحذير: تعذر الاتصال بـ Supabase. جارٍ العمل في الوضع المحلي.', 'error', 4000);
+    }
+
+    // أوقف شاشة التحميل
+    setTimeout(() => {
+      const loader = $('#loader');
+      const app = $('#app');
+      if (loader) loader.classList.remove('active');
+      if (app) app.classList.remove('hidden');
+      checkRoomInURL();
+    }, 600);
+
+    // تعامل مع الضغط على Back button في المتصفح
+    window.addEventListener('popstate', () => {
+      if (state.roomCode) {
+        if (confirm('هل تريد مغادرة الغرفة؟')) handleLeaveRoom();
+      }
+    });
+
+    console.info('[Boot] حروف 🎯 ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
