@@ -663,7 +663,7 @@
     sync.startRound = async function ({ letter, roundNumber }) {
       if (!currentRoomId) return;
       const now = new Date().toISOString();
-      await sb.from('rooms').update({
+      const { error } = await sb.from('rooms').update({
         status: 'playing',
         current_round: roundNumber,
         current_letter: letter,
@@ -672,23 +672,41 @@
         completed_at: null,
         round_finalized: false
       }).eq('id', currentRoomId);
+      if (error) throw new Error('فشل بدء الجولة: ' + error.message);
 
-      broadcastEvent('round-started', { round: roundNumber, letter });
+      // اقرأ الغرفة المحدّثة وأرسلها محليًا + للآخرين
+      const { data: updatedRoom } = await sb.from('rooms').select('*').eq('id', currentRoomId).single();
+      const room = updatedRoom || {
+        id: currentRoomId, current_round: roundNumber, current_letter: letter
+      };
+      const payload = { round: roundNumber, letter, room };
+      // أرسل للآخرين عبر البث
+      broadcastEvent('round-started', payload);
+      // أرسل لنفسك محليًا فورًا (يضمن انتقال واجهة الـ host حتى لو لم يصل البث)
+      sync._emit('round-started', payload);
     };
 
     sync.submitAnswers = async function (answers, completed = true) {
       if (!currentPlayerId || !currentRoomId) return;
-      const { data: room } = await sb.from('rooms').select('current_round').eq('id', currentRoomId).single();
-      if (!room) return;
+      const { data: room, error: roomErr } = await sb.from('rooms')
+        .select('current_round').eq('id', currentRoomId).single();
+      if (roomErr || !room) throw new Error('تعذر قراءة الجولة الحالية');
       const round = room.current_round;
+
+      // اقرأ اسم اللاعب الحقيقي من جدول players
+      const { data: me } = await sb.from('players')
+        .select('name').eq('id', currentPlayerId).single();
+      const playerName = (me && me.name) || 'لاعب';
+
       const payload = {
         room_id: currentRoomId,
         round_number: round,
         player_id: currentPlayerId,
+        player_name: playerName,
         answers,
         completed_at: completed ? new Date().toISOString() : null
       };
-      // upsert
+      // upsert (insert or update)
       const { data: existing } = await sb.from('round_answers')
         .select('id')
         .eq('room_id', currentRoomId)
@@ -696,21 +714,34 @@
         .eq('player_id', currentPlayerId)
         .maybeSingle();
       if (existing) {
-        await sb.from('round_answers').update(payload).eq('id', existing.id);
+        const { error } = await sb.from('round_answers')
+          .update(payload).eq('id', existing.id);
+        if (error) throw new Error('فشل تحديث الإجابات');
       } else {
-        await sb.from('round_answers').insert({ ...payload, player_name: '' });
+        const { error } = await sb.from('round_answers').insert(payload);
+        if (error) throw new Error('فشل إرسال الإجابات: ' + error.message);
       }
-      broadcastEvent('answers-updated', { round });
+      broadcastEvent('answers-updated', { round, playerId: currentPlayerId, playerName });
     };
 
     sync.announceCompletion = async function () {
       if (!currentRoomId) return;
       const now = new Date().toISOString();
-      await sb.from('rooms').update({
+      const { error } = await sb.from('rooms').update({
         completed_by: currentPlayerId,
         completed_at: now
       }).eq('id', currentRoomId);
-      broadcastEvent('answers-updated', { round: await getCurrentRound(), completedBy: currentPlayerId });
+      if (error) throw new Error('فشل إعلان الإكمال: ' + error.message);
+
+      // اقرأ اسم اللاعب
+      const { data: me } = await sb.from('players')
+        .select('name').eq('id', currentPlayerId).single();
+      const completedName = (me && me.name) || 'لاعب';
+      const round = await getCurrentRound();
+      const payload = { round, completedBy: currentPlayerId, completedName };
+      broadcastEvent('answers-updated', payload);
+      // أرسل محليًا أيضًا حتى واجهة الـ host نفسه تتأكد
+      sync._emit('answers-updated', payload);
     };
 
     async function getCurrentRound() {
@@ -721,21 +752,35 @@
     sync.finalizeRound = async function (scores) {
       if (!currentRoomId) return;
       const round = await getCurrentRound();
-      // حدّث نقاط كل لاعب في round_answers
+      // حدّث نقاط كل لاعب في round_answers + total_score في players
       for (const s of scores) {
-        await sb.from('round_answers')
-          .update({ round_score: s.roundScore, scores: s.scores })
+        const { error: e1 } = await sb.from('round_answers')
+          .update({ round_score: s.roundScore, scores: s.scores, player_name: s.playerName })
           .eq('room_id', currentRoomId)
           .eq('round_number', round)
           .eq('player_id', s.playerId);
-        // حدّث total_score في players
-        const { data: p } = await sb.from('players').select('total_score').eq('id', s.playerId).single();
+        if (e1) console.warn('[finalizeRound] answers update failed:', e1.message);
+        // اقرأ ثم حدّث total_score
+        const { data: p, error: e2 } = await sb.from('players')
+          .select('total_score').eq('id', s.playerId).single();
         if (p) {
-          await sb.from('players').update({ total_score: (p.total_score || 0) + s.roundScore }).eq('id', s.playerId);
+          const { error: e3 } = await sb.from('players')
+            .update({ total_score: (p.total_score || 0) + s.roundScore }).eq('id', s.playerId);
+          if (e3) console.warn('[finalizeRound] player update failed:', e3.message);
         }
       }
-      await sb.from('rooms').update({ status: 'scoring', round_finalized: true }).eq('id', currentRoomId);
-      broadcastEvent('round-finalized', { round, scores });
+      const { error: e4 } = await sb.from('rooms')
+        .update({ status: 'scoring', round_finalized: true }).eq('id', currentRoomId);
+      if (e4) console.warn('[finalizeRound] room update failed:', e4.message);
+
+      // اقرأ اللاعبين بعد التحديث لإرسالهم مع الحدث
+      const { data: updatedPlayers } = await sb.from('players')
+        .select('*').eq('room_id', currentRoomId).order('joined_at');
+      const payload = { round, scores, players: updatedPlayers || [] };
+      broadcastEvent('round-finalized', payload);
+      // أرسل محليًا للـ host فورًا
+      sync._emit('round-finalized', payload);
+      sync._emit('players-updated', updatedPlayers || []);
     };
 
     sync.nextRound = async function ({ letter, roundNumber }) {
@@ -744,24 +789,40 @@
 
     sync.endGame = async function () {
       if (!currentRoomId) return;
-      await sb.from('rooms').update({ status: 'finished' }).eq('id', currentRoomId);
-      broadcastEvent('game-ended', {});
+      const { error } = await sb.from('rooms').update({ status: 'finished' }).eq('id', currentRoomId);
+      if (error) throw new Error('فشل إنهاء اللعبة: ' + error.message);
+      // اقرأ الحالة النهائية لجميع اللاعبين
+      const { data: players } = await sb.from('players')
+        .select('*').eq('room_id', currentRoomId).order('joined_at');
+      const payload = { players: players || [] };
+      broadcastEvent('game-ended', payload);
+      // أرسل محليًا للـ host فورًا
+      sync._emit('game-ended', payload);
     };
 
     sync.resetGame = async function () {
       if (!currentRoomId) return;
-      await sb.from('rooms').update({
+      const { error: e1 } = await sb.from('rooms').update({
         status: 'lobby',
         current_round: 0,
         current_letter: null,
         completed_by: null,
+        completed_at: null,
         round_finalized: false
       }).eq('id', currentRoomId);
+      if (e1) throw new Error('فشل إعادة الضبط: ' + e1.message);
       // صفّر نقاط اللاعبين
       const { data: players } = await sb.from('players').select('id, is_host').eq('room_id', currentRoomId);
       for (const p of players || []) {
         await sb.from('players').update({ total_score: 0, ready: p.is_host }).eq('id', p.id);
       }
+      const { data: room } = await sb.from('rooms').select('*').eq('id', currentRoomId).single();
+      const { data: updatedPlayers } = await sb.from('players')
+        .select('*').eq('room_id', currentRoomId).order('joined_at');
+      broadcastEvent('room-updated', room);
+      broadcastEvent('players-updated', updatedPlayers || []);
+      sync._emit('room-updated', room);
+      sync._emit('players-updated', updatedPlayers || []);
     };
 
     sync.getRoundAnswers = async function (roundNumber) {

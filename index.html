@@ -2,19 +2,29 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0f0f1e" />
-  <title>حروف 🎯 — لعبة جماعية</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B2924" />
+  <meta name="description" content="حروف — لعبة جماعية ممتعة" />
+  <title>حروف — لعبة جماعية</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
+  <!-- زخرفة الخلفية الأندلسية -->
+  <div class="bg-pattern" aria-hidden="true">
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+    <div class="bg-glow bg-glow-3"></div>
+  </div>
+
   <!-- شاشة التحميل -->
   <div id="loader" class="loader active">
-    <div class="loader-emoji">🎯</div>
+    <div class="loader-circle">
+      <span class="loader-letter">ح</span>
+    </div>
     <div class="loader-text">حروف</div>
   </div>
 
@@ -23,51 +33,46 @@
 
     <!-- ===== الشاشة الرئيسية ===== -->
     <section id="screen-home" class="screen active">
-      <div class="home-bg">
-        <span class="floating-letter" style="--d:0s;--x:8vw;--y:18vh">أ</span>
-        <span class="floating-letter" style="--d:1.2s;--x:85vw;--y:25vh">ب</span>
-        <span class="floating-letter" style="--d:2.4s;--x:20vw;--y:80vh">ت</span>
-        <span class="floating-letter" style="--d:0.6s;--x:75vw;--y:75vh">ث</span>
-        <span class="floating-letter" style="--d:1.8s;--x:50vw;--y:45vh">ج</span>
-        <span class="floating-letter" style="--d:3s;--x:12vw;--y:50vh">ح</span>
-      </div>
       <div class="home-content">
-        <h1 class="game-title">حروف <span class="title-emoji">🎯</span></h1>
-        <p class="game-subtitle">مين أسرع واحد هيخلص؟</p>
+        <div class="hero-card glass-card">
+          <div class="hero-decoration"></div>
+          <h1 class="game-title">حروف</h1>
+          <p class="game-subtitle">اختبر سرعتك ومعرفتك</p>
+        </div>
 
-        <div class="home-buttons">
-          <button class="btn btn-primary btn-lg" data-action="go-create">
-            <span class="btn-icon">🎮</span>
-            <span>إنشاء لعبة</span>
+        <div class="home-actions">
+          <button class="btn btn-primary btn-lg btn-block" data-action="go-create">
+            <span class="btn-icon-svg" id="icon-create"></span>
+            <span class="btn-label">إنشاء غرفة</span>
           </button>
-          <button class="btn btn-secondary btn-lg" data-action="go-join">
-            <span class="btn-icon">🚪</span>
-            <span>دخول إلى لعبة</span>
-          </button>
-          <button class="btn btn-ghost btn-lg" data-action="open-howto">
-            <span class="btn-icon">📖</span>
-            <span>طريقة اللعب</span>
+          <button class="btn btn-secondary btn-lg btn-block" data-action="go-join">
+            <span class="btn-icon-svg" id="icon-join"></span>
+            <span class="btn-label">الانضمام لغرفة</span>
           </button>
         </div>
 
         <div class="home-footer">
-          <button id="sound-toggle-home" class="icon-btn" title="تشغيل/كتم الصوت">
-            <span class="sound-on">🔊</span>
-            <span class="sound-off hidden">🔇</span>
+          <button id="sound-toggle" class="icon-btn" title="الصوت">
+            <span class="sound-on" id="sound-on"></span>
+            <span class="sound-off hidden" id="sound-off"></span>
           </button>
-          <span class="version">v1.0</span>
+          <button id="vibration-toggle" class="icon-btn" title="الاهتزاز">
+            <span class="vibration-on" id="vibration-on">📳</span>
+            <span class="vibration-off hidden" id="vibration-off">📴</span>
+          </button>
+          <span class="version">v2.0</span>
         </div>
       </div>
     </section>
 
-    <!-- ===== شاشة إنشاء لعبة ===== -->
+    <!-- ===== شاشة إنشاء غرفة ===== -->
     <section id="screen-create" class="screen">
       <div class="screen-header">
-        <button class="icon-btn back-btn" data-action="back-home">←</button>
-        <h2>🎮 إنشاء لعبة جديدة</h2>
+        <button class="icon-btn back-btn" data-action="back-home" id="icon-back-1"></button>
+        <h2>إنشاء غرفة جديدة</h2>
       </div>
 
-      <div class="card">
+      <div class="card glass-card">
         <label class="field">
           <span class="field-label">اسمك</span>
           <input type="text" id="create-name" maxlength="20" placeholder="اكتب اسمك" />
@@ -79,16 +84,16 @@
             <button data-value="3">3</button>
             <button data-value="5" class="active">5</button>
             <button data-value="10">10</button>
-            <button data-value="0">∞ مفتوح</button>
+            <button data-value="0">∞</button>
           </div>
         </div>
 
         <div class="field">
-          <span class="field-label">مدة الجولة</span>
+          <span class="field-label">مدة الجولة (بالثواني)</span>
           <div class="segmented" data-name="duration">
-            <button data-value="30">30 ث</button>
-            <button data-value="60" class="active">60 ث</button>
-            <button data-value="90">90 ث</button>
+            <button data-value="30">30</button>
+            <button data-value="60" class="active">60</button>
+            <button data-value="90">90</button>
           </div>
         </div>
 
@@ -107,19 +112,20 @@
         </div>
 
         <button class="btn btn-primary btn-block" data-action="create-room">
-          <span>إنشاء الغرفة</span>
+          <span class="btn-icon-svg" id="icon-create-go"></span>
+          <span class="btn-label">إنشاء الغرفة</span>
         </button>
       </div>
     </section>
 
-    <!-- ===== شاشة دخول إلى لعبة ===== -->
+    <!-- ===== شاشة الانضمام لغرفة ===== -->
     <section id="screen-join" class="screen">
       <div class="screen-header">
-        <button class="icon-btn back-btn" data-action="back-home">←</button>
-        <h2>🚪 دخول إلى لعبة</h2>
+        <button class="icon-btn back-btn" data-action="back-home" id="icon-back-2"></button>
+        <h2>الانضمام لغرفة</h2>
       </div>
 
-      <div class="card">
+      <div class="card glass-card">
         <label class="field">
           <span class="field-label">اسمك</span>
           <input type="text" id="join-name" maxlength="20" placeholder="اكتب اسمك" />
@@ -127,11 +133,12 @@
 
         <label class="field">
           <span class="field-label">كود الغرفة</span>
-          <input type="text" id="join-code" maxlength="6" placeholder="مثال: A4F2K9" class="code-input" />
+          <input type="text" id="join-code" maxlength="6" placeholder="ABC123" class="code-input" />
         </label>
 
         <button class="btn btn-primary btn-block" data-action="join-room">
-          <span>دخول</span>
+          <span class="btn-icon-svg" id="icon-join-go"></span>
+          <span class="btn-label">دخول</span>
         </button>
         <p id="join-error" class="error-text hidden"></p>
       </div>
@@ -140,56 +147,61 @@
     <!-- ===== شاشة الغرفة ===== -->
     <section id="screen-room" class="screen">
       <div class="screen-header">
-        <button class="icon-btn back-btn" data-action="leave-room">←</button>
-        <h2>🛏️ غرفة الانتظار</h2>
+        <button class="icon-btn back-btn" data-action="leave-room" id="icon-back-3"></button>
+        <h2>غرفة الانتظار</h2>
       </div>
 
-      <div class="card">
-        <div class="room-code-box">
-          <span class="label">كود الغرفة</span>
-          <div class="code-row">
-            <span id="room-code" class="room-code">------</span>
-            <button class="icon-btn copy-btn" data-action="copy-code" title="نسخ الكود">📋</button>
-            <button class="icon-btn share-btn" data-action="share-code" title="مشاركة">📤</button>
-          </div>
-          <span id="copy-toast" class="copy-toast">تم النسخ ✓</span>
+      <div class="card glass-card room-code-card">
+        <span class="card-label">كود الغرفة</span>
+        <div class="code-row">
+          <span id="room-code" class="room-code">------</span>
+          <button class="icon-btn copy-btn" data-action="copy-code" title="نسخ" id="icon-copy"></button>
+          <button class="icon-btn share-btn" data-action="share-code" title="مشاركة" id="icon-share"></button>
         </div>
+        <span id="copy-toast" class="copy-toast">تم النسخ</span>
+      </div>
 
+      <div class="card glass-card">
         <div class="room-info">
           <div class="room-info-item">
             <span class="num" id="room-rounds-display">5</span>
             <span class="lbl">جولات</span>
           </div>
+          <div class="room-info-divider"></div>
           <div class="room-info-item">
             <span class="num" id="room-duration-display">60</span>
             <span class="lbl">ثانية</span>
           </div>
+          <div class="room-info-divider"></div>
           <div class="room-info-item">
             <span class="num" id="room-players-count">0</span>
             <span class="lbl">لاعبين</span>
           </div>
         </div>
+      </div>
 
+      <div class="card glass-card">
         <div class="field">
           <span class="field-label">اللاعبون (<span id="players-list-count">0</span>)</span>
           <ul id="players-list" class="players-list"></ul>
         </div>
-
-        <button id="btn-start-game" class="btn btn-primary btn-block hidden">
-          <span>🎮 ابدأ اللعبة</span>
-        </button>
-        <p id="room-waiting" class="hint hidden">في انتظار اللاعبين...</p>
       </div>
+
+      <button id="btn-start-game" class="btn btn-primary btn-lg btn-block hidden">
+        <span class="btn-icon-svg" id="icon-start"></span>
+        <span class="btn-label">ابدأ اللعبة</span>
+      </button>
+      <p id="room-waiting" class="hint hidden">في انتظار بدء الجولة...</p>
     </section>
 
     <!-- ===== شاشة اللعب ===== -->
     <section id="screen-play" class="screen">
-      <div class="play-top">
-        <div class="round-info">
-          <span class="round-num">الجولة <span id="current-round">1</span> / <span id="total-rounds">5</span></span>
+      <div class="play-header">
+        <div class="play-info-card glass-card">
+          <span class="round-label">الجولة</span>
+          <span class="round-num"><span id="current-round">1</span> / <span id="total-rounds">5</span></span>
         </div>
-        <div class="letter-display" id="current-letter">أ</div>
-        <div class="timer-wrap">
+        <div class="timer-card glass-card">
           <div class="timer-circle">
             <svg viewBox="0 0 100 100">
               <circle class="timer-bg" cx="50" cy="50" r="45"></circle>
@@ -200,17 +212,22 @@
         </div>
       </div>
 
-      <p class="hint letter-hint">اكتب إجابات تبدأ بحرف <strong id="hint-letter">أ</strong></p>
+      <div class="letter-card glass-card">
+        <div class="letter-decoration"></div>
+        <span class="letter-hint-top">ابدأ الإجابة بحرف</span>
+        <div class="letter-display" id="current-letter">أ</div>
+        <span class="letter-hint-bottom">اكتب إجاباتك في الخانات أدناه</span>
+      </div>
 
       <div id="answers-grid" class="answers-grid"></div>
 
       <button id="btn-completed" class="btn btn-success btn-block btn-completed">
-        <span class="btn-icon">✅</span>
-        <span>COMPLETED — خلصت</span>
+        <span class="btn-icon-svg" id="icon-complete"></span>
+        <span class="btn-label">خلصت — COMPLETED</span>
       </button>
 
       <div id="completed-notice" class="completed-notice hidden">
-        <span class="fire">🔥</span>
+        <span class="completed-fire"></span>
         <span id="completed-text">اللاعب أنهى أولًا!</span>
       </div>
     </section>
@@ -218,45 +235,43 @@
     <!-- ===== شاشة النتائج ===== -->
     <section id="screen-results" class="screen">
       <div class="screen-header">
-        <h2>📊 نتائج الجولة <span id="results-round">1</span></h2>
+        <h2>نتائج الجولة <span id="results-round">1</span></h2>
       </div>
 
-      <div id="round-winner-banner" class="round-winner-banner hidden">
-        <span class="crown">👑</span>
+      <div id="round-winner-banner" class="round-winner-banner glass-card hidden">
+        <span class="crown-icon" id="icon-crown-1"></span>
         <span class="winner-text">بطل الجولة: <strong id="round-winner-name">—</strong></span>
       </div>
 
-      <div class="card">
-        <div id="results-table" class="results-table"></div>
-      </div>
+      <div id="results-table" class="results-table"></div>
 
-      <div class="results-actions">
-        <button class="btn btn-primary btn-block" data-action="next-round">
-          <span>الجولة التالية ←</span>
-        </button>
-      </div>
+      <button class="btn btn-primary btn-block" data-action="next-round">
+        <span class="btn-icon-svg" id="icon-next-round"></span>
+        <span class="btn-label">الجولة التالية</span>
+      </button>
     </section>
 
     <!-- ===== شاشة النهاية ===== -->
     <section id="screen-final" class="screen">
       <div class="screen-header">
-        <h2>🏆 نهاية اللعبة</h2>
+        <h2>نهاية اللعبة</h2>
       </div>
 
       <div id="final-podium" class="final-podium"></div>
 
-      <div class="card">
+      <div class="card glass-card">
         <h3 class="final-subtitle">الترتيب النهائي</h3>
         <div id="final-table" class="final-table"></div>
       </div>
 
-      <div class="results-actions">
+      <div class="final-actions">
         <button class="btn btn-secondary btn-block" data-action="play-again">
-          <span class="btn-icon">🔁</span>
-          <span>إعادة اللعب بنفس اللاعبين</span>
+          <span class="btn-icon-svg" id="icon-replay"></span>
+          <span class="btn-label">إعادة اللعب</span>
         </button>
         <button class="btn btn-ghost btn-block" data-action="back-home-final">
-          <span>العودة للرئيسية</span>
+          <span class="btn-icon-svg" id="icon-home"></span>
+          <span class="btn-label">العودة للرئيسية</span>
         </button>
       </div>
     </section>
@@ -264,9 +279,9 @@
     <!-- ===== مودال طريقة اللعب ===== -->
     <div id="modal-howto" class="modal hidden">
       <div class="modal-backdrop" data-action="close-howto"></div>
-      <div class="modal-card">
-        <button class="modal-close icon-btn" data-action="close-howto">✕</button>
-        <h3>📖 طريقة اللعب</h3>
+      <div class="modal-card glass-card">
+        <button class="modal-close icon-btn" data-action="close-howto" id="icon-close-howto"></button>
+        <h3>طريقة اللعب</h3>
         <ol class="howto-list">
           <li>ينشئ أحد اللاعبين غرفة جديدة ويحصل على كود الغرفة.</li>
           <li>يشارك الكود مع أصدقائه ليدخلوا بأسمائهم.</li>
@@ -277,7 +292,7 @@
           <li>إجابة صحيحة فريدة = 10 نقاط، مكررة = 5، خاطئة = 0.</li>
           <li>بعد كل الجولات تظهر شاشة التتويج النهائية.</li>
         </ol>
-        <button class="btn btn-primary btn-block" data-action="close-howto">فهمت!</button>
+        <button class="btn btn-primary btn-block" data-action="close-howto">فهمت</button>
       </div>
     </div>
 
@@ -290,9 +305,63 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- إعدادات Supabase -->
   <script src="config.js"></script>
+  <!-- نظام الأصوات -->
+  <script src="js/audio.js"></script>
+  <!-- نظام المؤثرات -->
+  <script src="js/effects.js"></script>
   <!-- طبقة الاتصال بـ Supabase + fallback محلي -->
   <script src="supabase.js"></script>
   <!-- منطق اللعبة -->
   <script src="app.js"></script>
+  <script>
+    // حقن أيقونات SVG في عناصر الزر
+    document.addEventListener('DOMContentLoaded', function() {
+      const ICON_MAP = {
+        'icon-create': 'play',
+        'icon-join': 'door',
+        'icon-back-1': 'back',
+        'icon-back-2': 'back',
+        'icon-back-3': 'back',
+        'icon-create-go': 'play',
+        'icon-join-go': 'arrowLeft',
+        'icon-copy': 'copy',
+        'icon-share': 'share',
+        'icon-start': 'play',
+        'icon-complete': 'check',
+        'icon-crown-1': 'crown',
+        'icon-next-round': 'arrowLeft',
+        'icon-replay': 'refresh',
+        'icon-home': 'home',
+        'icon-close-howto': 'close',
+        'sound-on': 'volume',
+        'sound-off': 'mute'
+      };
+      const ICONS = window.__ICONS__ || {};
+      // استخرج أيقونات من كائن ICONS داخل app.js
+      // الحل الأبسط: نضع SVG بشكل مضمّن
+      const SVG_ICONS = {
+        play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+        door: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
+        back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>',
+        arrowLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+        copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
+        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>',
+        close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+        volume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
+        mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>',
+        refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>',
+        home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+        crown: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18l-2-9-4 4-4-7-4 7-4-4z"/></svg>'
+      };
+      Object.keys(ICON_MAP).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          const svg = SVG_ICONS[ICON_MAP[id]];
+          if (svg) el.innerHTML = svg;
+        }
+      });
+    });
+  </script>
 </body>
 </html>
